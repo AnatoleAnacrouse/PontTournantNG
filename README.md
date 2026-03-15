@@ -1,8 +1,8 @@
-# Projet de pont tournant ferroviaire
+# Projet de Pont Tournant Ferroviaire Nouvelle Génération
 
 ## Description
 
-Ce projet permet de gérer un pont **tournant ferroviaire** avec un **Arduino**.
+Ce projet permet de gérer un **pont tournant ferroviaire** avec un **Arduino**.
 
 Le pont tournant permet de faire pivoter une voie pour aligner une locomotive avec une voie (entrée et/ou sortie) et une voie de garage.
 
@@ -64,7 +64,7 @@ La séquence est inversée :
 * Destination : le système sait que la destination est la voie d'entrée (voie 0).
 * Mouvement final : le pont retourne à la voie d'entrée, en effectuant ou non un retournement selon la demande.
 
-####Résumé des différences :
+### Résumé des différences :
 
 |Caractéristique|Mode Entrée (A)|Mode Sortie (B)|
 |-|-|-|
@@ -112,7 +112,7 @@ Voici comment fonctionne cette optimisation :
 
 **Exemple concret**
 
-si le pont est à la position 10 pas et doit aller à la position 350 pas :
+Si le pont est à la position 10 pas et doit aller à la position 350 pas :
 
 * La distance directe est de +340 pas.
 * Comme 340 est supérieur à 200, le code calcule : 340 - 400 = **-60 pas**.
