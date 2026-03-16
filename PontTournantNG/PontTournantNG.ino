@@ -1,21 +1,6 @@
-/* --------------------------------------------------------------------
-           PONT TOURNANT NOUVELLE GÉNÉRATION
-
-Ce logiciel permet de gérer un pont tournant ferroviaire avec un Arduino.
-
-Le matériel est constitué de :
-   - un pont tournant JOUEF, 40 voies max, angle de 9° entre chaque voie ;
-   - un Arduino Uno / Nano ou Mega ;
-   - un afficheur LCD 4 x 20 I2C avec SCL sur les broches A5 et SDA sur A4 ;
-   - PAD 4 x 4 touches sur les broches D2 a D9 ;
-   - un capteur Hall et un aimant pour le homing ;
-   - un moteur à pas NEMA 14 à 200 pas/rotation avec réduction 8:1 via A4988 
-        sur les broches D11 (DIR) et D12 (STEP) 
-        et mise en œuvre avec la librairie AccelStepper()
------------------------------------------------------------------------ */
-
 // --------------------------------------------------------------------
-// LIBRAIRIES
+// PONT TOURNANT NOUVELLE GÉNÉRATION – VERSION V0.1
+//
 // --------------------------------------------------------------------
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
@@ -26,7 +11,7 @@ Le matériel est constitué de :
 // --------------------------------------------------------------------
 // CONFIGURATION GÉNÉRALE
 // --------------------------------------------------------------------
-#define VERSION        "V0.R1"
+#define VERSION        "V0.1"
 #define OK             0
 #define ABANDON       -1
 
@@ -93,7 +78,7 @@ AccelStepper moteur(AccelStepper::DRIVER, stepStepperPin, dirStepperPin);
 // POSITIONS DES VOIES (1..40) — valeurs par défaut
 // Chargées / écrasées depuis EEPROM au démarrage
 // --------------------------------------------------------------------
-#define NB_MAX_VOIE    40
+#define NB_MAX_VOIE 40
 
 int tabVoie[NB_MAX_VOIE + 1] = {
     0,
@@ -122,7 +107,7 @@ const int tabVoieDefaut[NB_MAX_VOIE + 1] = {
   310, 320, 330, 340, 350, 360, 370, 380, 390, 400
 };
 
-const byte voieEntree = 1;
+const byte voieEntree = 0;
 int voieCourante = voieEntree;
 
 // --------------------------------------------------------------------
@@ -153,6 +138,8 @@ void lcdClearLine(byte line) {
 
 // --------------------------------------------------------------------
 // EEPROM — SAUVEGARDE ET CHARGEMENT
+// ATTENTION : Limite la duréé de vie de l'EEPROM => ne devrait être fait
+//             que avant d'éteindre le pont
 // --------------------------------------------------------------------
 void sauvegarderVoieCourante() {
   EEPROM.put(EEPROM_ADDR_VOIE_COURANTE, voieCourante);
@@ -243,56 +230,6 @@ void afficherProgression(float progress) {
 }
 
 // --------------------------------------------------------------------
-// NORMALISATION POSITION MOTEUR
-// --------------------------------------------------------------------
-long normaliserPosition() {
-
-  long pos = moteur.currentPosition() % stepsPerRevolution;
-  if (pos < 0) pos += stepsPerRevolution;
-  moteur.setCurrentPosition(pos);
-  return pos;
-}
-
-// --------------------------------------------------------------------
-// CALCUL DU PLUS COURT CHEMIN
-// --------------------------------------------------------------------
-long calculerTrajet(long posActuelle, long posCible) {
-
-  long d = posCible - posActuelle;
-  if (abs(d) > stepsPerRevolution / 2) {
-    d += (d > 0) ? -stepsPerRevolution : stepsPerRevolution;
-  }
-  return d;
-}
-
-// --------------------------------------------------------------------
-// DÉPLACEMENT AVEC BARRE DE PROGRESSION
-// CORRECTION : garde contre division par zéro si cible == position
-// --------------------------------------------------------------------
-void moteurAllerA(long cible) {
-
-  long depart = moteur.currentPosition();
-  long distanceTotale = abs(cible - depart);
-
-  // Garde : rien à faire si déjà en position
-  if (distanceTotale == 0) {
-    afficherProgression(1.0);
-    return;
-  }
-
-  moteur.moveTo(cible);
-
-  while (moteur.distanceToGo() != 0) {
-    moteur.run();
-    long distanceParcourue = abs(moteur.currentPosition() - depart);
-    float progress = (float)distanceParcourue / (float)distanceTotale;
-    afficherProgression(progress);
-  }
-
-  afficherProgression(1.0);
-}
-
-// --------------------------------------------------------------------
 // DIAGNOSTIC
 // --------------------------------------------------------------------
 void Diagnostic() {
@@ -375,43 +312,114 @@ void proposerHoming() {
   lcd.print(voieCourante);
   lcd.print(")");
 
-  char t = '\0';
-  while (t != 'V' && t != 'E') {
-    t = keypad.getKey();
+  char touche = '\0';
+  while (touche != 'V' && touche != 'E') {
+    touche = keypad.getKey();
   }
 
-  if (t == 'V') homing();
+  if (touche == 'V') homing();
 }
 
 // --------------------------------------------------------------------
 // VOIE OPPOSÉE (retournement)
 // --------------------------------------------------------------------
 int voieOpposee(int voie) {
+  //return ((NB_MAX_VOIE / 2 + voie) % NB_MAX_VOIE);
   return ((NB_MAX_VOIE / 2 + voie - 1) % NB_MAX_VOIE) + 1;
+}
+
+// --------------------------------------------------------------------
+// NORMALISATION POSITION MOTEUR
+// --------------------------------------------------------------------
+long normaliserPosition() {
+
+  long position = moteur.currentPosition() % stepsPerRevolution;
+  if (position < 0) {
+    position += stepsPerRevolution;
+  }
+  moteur.setCurrentPosition(position);
+  return position;
+}
+
+// --------------------------------------------------------------------
+// CALCUL DU PLUS COURT CHEMIN (optimiser le trajet du pont roulant)
+//  Le pont roulant peut tourner dans les deux sens SAM et SIAM.
+//  Pour minimiser le déplacement du pont, on calcule la distance 
+//  entre la position actuelle et la cible. Si cette distance est plus grande
+//  que la moitié d’un tour complet, on tourne dans l’autre sens. 
+//  Pour cela, au lieu d'ajouter la distance qui sépare la position actuelle
+//  vers la position cible, on soustrait cette distance.
+// --------------------------------------------------------------------
+long calculerPlusCourtChemin(long posActuelle, long posCible) {
+
+  // Calculer la distance entre la position actuelle et la position cible
+  long distance = posCible - posActuelle;
+
+  // Si la distance absolue est supérieure à la moitié d'un tour complet
+  if (abs(distance) > stepsPerRevolution / 2) {
+    // Ajuster la distance pour prendre le chemin le plus court
+    distance += (distance > 0) ? -stepsPerRevolution : stepsPerRevolution;
+  }
+
+  return distance;
+}
+
+// --------------------------------------------------------------------
+// DÉPLACEMENT AVEC BARRE DE PROGRESSION
+// CORRECTION : garde contre division par zéro si cible == position
+// --------------------------------------------------------------------
+void moteurAllerA(long cible) {
+
+  long depart = moteur.currentPosition();
+  long distanceTotale = abs(cible - depart);
+
+  // Garde : rien à faire si déjà en position
+  if (distanceTotale == 0) {
+    afficherProgression(1.0);
+    return;
+  }
+
+  moteur.moveTo(cible);
+
+  while (moteur.distanceToGo() != 0) {
+    moteur.run();
+    long distanceParcourue = abs(moteur.currentPosition() - depart);
+    float progress = (float)distanceParcourue / (float)distanceTotale;
+    afficherProgression(progress);
+  }
+
+  afficherProgression(1.0);
 }
 
 // --------------------------------------------------------------------
 // DÉPLACEMENT DU PONT TOURNANT
 // --------------------------------------------------------------------
-int deplacerPT(int voieCible, bool retournement) {
+int deplacerPT(const int surVoie, const int retournement) {
 
-  if (retournement) {
-    voieCible = voieOpposee(voieCible);
-  }
+  int voieCible = surVoie;
 
+  // Si retournement alors choisir la voie d'en face
+  if (retournement) voieCible = voieOpposee(voieCible);
+
+  // Si on est deja sur la voie  alors ne rien faire
   if (voieCible == voieCourante) return OK;
 
   lcdClearLine(3);
   lcd.setCursor(0, 3);
   lcd.print("Rotation...");
 
-  long posActuelle = normaliserPosition();
-  long distance    = calculerTrajet(tabVoie[voieCourante], tabVoie[voieCible]);
+  // Normaliser si necessaire
+  int posActuelle = normaliserPosition();
 
+  // Optimiser le trajet du pont roulant
+  int distance = calculerPlusCourtChemin(posActuelle, tabVoie[voieCible]);
+
+  // Deplacer le pont
   moteurAllerA(posActuelle + distance);
 
+  // Remettre a jour la configuration
   voieCourante = voieCible;
-  sauvegarderVoieCourante();   // ← persist après chaque déplacement
+  sauvegarderVoieCourante();
 
   return OK;
 }
@@ -425,7 +433,6 @@ const char* manoeuvres[] = {
 
 const int nbManoeuvres = 4;
 
-// --------------------------------------------------------------------
 int saisirTypeManoeuvre() {
 
   char touche = '\0';
@@ -469,8 +476,8 @@ int saisirTypeManoeuvre() {
                       (touche == 'E'));
     } while (!entreeValide);
 
-    if (touche == 'U' && selection > 0)                  selection--;
-    if (touche == 'D' && selection < nbManoeuvres - 1)   selection++;
+    if (touche == 'U' && selection > 0) selection--;
+    if (touche == 'D' && selection < nbManoeuvres - 1) selection++;
     if (touche == 'V') return selection;
     if (touche == 'E') return ABANDON;
 
@@ -483,6 +490,7 @@ int saisirTypeManoeuvre() {
 // --------------------------------------------------------------------
 int saisirNumeroVoie() {
 
+  char touche;
   String saisie = "";
 
   lcd.clear();
@@ -495,25 +503,31 @@ int saisirNumeroVoie() {
 
   while (true) {
 
-    char t = keypad.getKey();
-    if (!t) continue;
+    touche = keypad.getKey();
 
-    if (t >= '0' && t <= '9' && saisie.length() < 2) {
-      saisie += t;
+    if (!touche) continue;
+
+    if (touche >= '0' && touche <= '9' && saisie.length() < 2) {
+      saisie += touche;
       lcd.setCursor(2, 1);
       lcd.print("   ");
       lcd.setCursor(2, 1);
       lcd.print(saisie);
     }
-    else if (t == 'L' && saisie.length() > 0) {
+
+    else if (touche == 'L' && saisie.length() > 0) {
       saisie.remove(saisie.length() - 1);
       lcd.setCursor(2, 1);
       lcd.print("   ");
       lcd.setCursor(2, 1);
       lcd.print(saisie);
     }
-    else if (t == 'V') {
-      if (saisie.length() == 0) { beep(); continue; }
+
+    else if (touche == 'V') {
+      if (saisie.length() == 0) { 
+        beep(); 
+        continue; 
+      }
       int voie = saisie.toInt();
       if (voie < 1 || voie > NB_MAX_VOIE) {
         beep();
@@ -527,7 +541,8 @@ int saisirNumeroVoie() {
       }
       return voie;
     }
-    else if (t == 'E') return ABANDON;
+
+    else if (touche == 'E') return ABANDON;
   }
 }
 
@@ -536,7 +551,6 @@ int saisirNumeroVoie() {
 // --------------------------------------------------------------------
 const char* ouiNon[] = {"Non", "Oui"};
 
-// --------------------------------------------------------------------
 int demanderRetournement() {
 
   char touche = '\0';
@@ -632,13 +646,13 @@ void modeCalibration() {
     lcd.print(voie);
     lcd.print(" Offset:");
     lcd.print(tabVoie[voie]);
-    lcd.print("    ");
+    //lcd.print("    ");
 
     lcd.setCursor(0, 2);
-    lcd.print("Offset: U:+1  D:-1");
+    lcd.print("Offset:U=+  D=-");
 
     lcd.setCursor(0, 3);
-    lcd.print("Voie: L:-  R:+  V:Save");
+    lcd.print("Voie:R=+ L=- V=Val");
 
     do {
       touche = keypad.getKey();
