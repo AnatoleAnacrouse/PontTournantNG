@@ -1,6 +1,8 @@
 // --------------------------------------------------------------------
 // PONT TOURNANT NOUVELLE GÉNÉRATION – VERSION V0.1
 //
+#define VERSION        "V0.1"
+//
 // --------------------------------------------------------------------
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
@@ -11,24 +13,24 @@
 // --------------------------------------------------------------------
 // CONFIGURATION GÉNÉRALE
 // --------------------------------------------------------------------
-#define VERSION        "V0.1"
+#define JESUS_CHRIST   false
 #define OK             0
 #define ABANDON       -1
 
 // --------------------------------------------------------------------
 // CONSTANTES MOTEUR
 // --------------------------------------------------------------------
-#define SPEED_NORMAL        1000
-#define SPEED_HOMING         300
-#define ACCEL_NORMAL         150
-#define ACCEL_HOMING         100
+#define SPEED_NORMAL     700
+#define ACCEL_NORMAL     200
+#define SPEED_HOMING     300
+#define ACCEL_HOMING     100
 
 // --------------------------------------------------------------------
 // CONSTANTES AFFICHAGE
 // --------------------------------------------------------------------
-#define TIMEOUT_MSG         1500   // durée affichage messages courts (ms)
-#define TIMEOUT_ERREUR       800   // durée affichage erreurs (ms)
-#define TIMEOUT_SAUVEGARDE   800   // durée confirmation sauvegarde (ms)
+#define TIMEOUT_MSG        1500   // durée affichage messages courts (ms)
+#define TIMEOUT_ERREUR      800   // durée affichage erreurs (ms)
+#define TIMEOUT_SAUVEGARDE  800   // durée confirmation sauvegarde (ms)
 
 // --------------------------------------------------------------------
 // CAPTEUR HALL / BUZZER
@@ -43,12 +45,9 @@ LiquidCrystal_I2C lcd(0x27, 20, 4);
 
 // --------------------------------------------------------------------
 // KEYPAD 4x4 
-// U : Up / avancer
-// D : Down / reculer
-// L : Left / Déplacer à gauche
-// R : Right / Déplacer à droite
-// V : Valider
-// E : Echap / Annuler
+// U : Up / avancer               D : Down / reculer
+// L : Left / Déplacer à gauche   R : Right / Déplacer à droite
+// V : Valider                    E : Echap / Annuler
 // --------------------------------------------------------------------
 #define ROWS 4
 #define COLS 4
@@ -146,34 +145,47 @@ void sauvegarderVoieCourante() {
 }
 
 // --------------------------------------------------------------------
-// Charge tabVoie et voieCourante depuis EEPROM.
-// Si le magic byte est absent ou les données invalides,
-// conserve les valeurs par défaut du code et avertit l'utilisateur.
+// Gere en EEPROM la configuration du pont (tabVoie et voieCourante)
+// et vérifie que ces donnes sont presentes et valides.
+// Un magic byte permet de determiner le type d'un fichier
 // --------------------------------------------------------------------
 void chargerEEPROM() {
 
+  // Détecte si l'EEPROM a déjà été initialisée
   byte magic;
   EEPROM.get(EEPROM_MAGIC_ADDR, magic);
 
+  // --- Première utilisation ou EEPROM vierge ---
+
+  // Si l'EEPROM est vierge
+  // alors suvegarder les données (tableau des voies et voie courante)
+  // puis marquer l'EEPROM comme initialisée (magic byte)
   if (magic != EEPROM_MAGIC_VALUE) {
-    // Première utilisation ou EEPROM vierge : écrire les valeurs par défaut
     EEPROM.put(0, tabVoie);
     EEPROM.put(EEPROM_ADDR_VOIE_COURANTE, voieCourante);
     EEPROM.put(EEPROM_MAGIC_ADDR, (byte)EEPROM_MAGIC_VALUE);
 
+    // Afficher un message de confirmation sur l'écran LCD
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("Init EEPROM...");
     lcd.setCursor(0, 1);
     lcd.print("Valeurs defaut OK");
     delay(TIMEOUT_MSG);
+
+    // Pas besoin de lire, on vient d'écrire les valeurs
     return;
   }
 
-  // Lire et valider tabVoie
+  // --- Lire et valider tabVoie ---
+
+  // Lire le tableau des voies depuis l'EEPROM 
+  // dans un buffer temporaire afin de valider les voies
   int buf[NB_MAX_VOIE + 1];
   EEPROM.get(0, buf);
 
+  // Vérifier que les données sont dans la plage autorisée 
+  // [0, stepsPerRevolution]
   bool valide = true;
   for (int i = 1; i <= NB_MAX_VOIE; i++) {
     if (buf[i] < 0 || buf[i] > stepsPerRevolution) {
@@ -182,25 +194,30 @@ void chargerEEPROM() {
     }
   }
 
+  // Si les donnees ne sont pas corrompues
+  // copier le buffer dans le tableau actif
   if (valide) {
     memcpy(tabVoie, buf, sizeof(tabVoie));
+
+  //sinon l'EEPROM est corrompue
   } else {
-    // EEPROM corrompue : on garde les valeurs par défaut
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("EEPROM invalide !");
     lcd.setCursor(0, 1);
     lcd.print("Valeurs defaut OK");
     delay(2000);
-    // Réécrire les valeurs saines
+    // Réécrire les valeurs saines pour corriger l'EEPROM
     EEPROM.put(0, tabVoie);
   }
 
+  // --- Charger la voie courante ---
+
   // Charger voieCourante
-  int v;
-  EEPROM.get(EEPROM_ADDR_VOIE_COURANTE, v);
-  if (v >= 1 && v <= NB_MAX_VOIE) {
-    voieCourante = v;
+  int voie;
+  EEPROM.get(EEPROM_ADDR_VOIE_COURANTE, voie);
+  if (voie >= 1 && voie <= NB_MAX_VOIE) {
+    voieCourante = voie;
   } else {
     voieCourante = voieEntree;
     sauvegarderVoieCourante();
@@ -322,12 +339,6 @@ void proposerHoming() {
 
 // --------------------------------------------------------------------
 // VOIE OPPOSÉE (retournement)
-// Pour retourner le pont il faut le positionner sur la voie d'en face
-// (puisque le nombre de voies est pair)
-// le calcul du modulo (operateur %) permet de rester dans l'intervalle [1..NB_MAX_VOIE]
-// Exemple : sur la voie 30, la voie en face est la voie 10
-//           à la voie 30 j'ajoute 20 (40 voies / 2) cela donne la voie 50
-//           et 50 modulo 40 donne 10 (reste de la division de 50 / 40)
 // --------------------------------------------------------------------
 int voieOpposee(int voie) {
   //return ((NB_MAX_VOIE / 2 + voie) % NB_MAX_VOIE);
@@ -337,7 +348,7 @@ int voieOpposee(int voie) {
 // --------------------------------------------------------------------
 // NORMALISATION POSITION MOTEUR
 // La librairie AccelStepper calcul un nombre de pas absolue
-// Si par exemple le pont fait deux tours d'un moteur 40 pas
+// Si par exemple je fais deux tours d'un moteur 40 pas
 // la position courante du moteur sera égale à 80
 // Le calcul du modulo parmet de ramener la position
 // dans l'intervalle [10..stepsPerRevolution]
@@ -453,7 +464,7 @@ int saisirTypeManoeuvre() {
   lcd.clear();
   int selectionPrecedente = -1;  // forcer le premier affichage
 
-  while (true) {
+  while (!JESUS_CHRIST) {
 
     if (selection != selectionPrecedente) {
       for (int i = 0; i < nbManoeuvres; i++) {
@@ -512,7 +523,7 @@ int saisirNumeroVoie() {
   lcd.setCursor(0, 1);
   lcd.print("> ");
 
-  while (true) {
+  while (!JESUS_CHRIST) {
 
     touche = keypad.getKey();
 
@@ -568,7 +579,7 @@ int demanderRetournement() {
   bool entreeValide = false;
   int selection = 0;
 
-  while (true) {
+  while (!JESUS_CHRIST) {
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("Retournement ?");
@@ -602,18 +613,15 @@ void modeMaintenance() {
   char touche = '\0';
   bool entreeValide = false;
 
-  while (true) {
+  while (!JESUS_CHRIST) {
 
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("== MAINTENANCE ==");
-
     lcd.setCursor(0, 1);
     lcd.print("U:+10  D:-10");
-
     lcd.setCursor(0, 2);
     lcd.print("R:+1   L:-1");
-
     lcd.setCursor(0, 3);
     lcd.print("E:Quitter");
 
@@ -646,7 +654,7 @@ void modeCalibration() {
   bool entreeValide = false;
   int voie = 1;
 
-  while (true) {
+  while (!JESUS_CHRIST) {
 
     lcd.clear();
     lcd.setCursor(0, 0);
@@ -754,7 +762,7 @@ void loop() {
       deplacerPT(voieSelectionnee, retournementChoisi);
     break;
 
-    // Amener une locomotive du dépôt vers la voie d’entrée
+    // Amener une locomotive d'une voie du dépôt vers la voie d’entrée
     case MANOEUVRE_SORTIE:
       voieSelectionnee = saisirNumeroVoie();
       if (voieSelectionnee == ABANDON) {
