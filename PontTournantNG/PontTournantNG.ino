@@ -322,6 +322,12 @@ void proposerHoming() {
 
 // --------------------------------------------------------------------
 // VOIE OPPOSÉE (retournement)
+// Pour retourner le pont il faut le positionner sur la voie d'en face
+// (puisque le nombre de voies est pair)
+// le calcul du modulo (operateur %) permet de rester dans l'intervalle [1..NB_MAX_VOIE]
+// Exemple : sur la voie 30, la voie en face est la voie 10
+//           à la voie 30 j'ajoute 20 (40 voies / 2) cela donne la voie 50
+//           et 50 modulo 40 donne 10 (reste de la division de 50 / 40)
 // --------------------------------------------------------------------
 int voieOpposee(int voie) {
   //return ((NB_MAX_VOIE / 2 + voie) % NB_MAX_VOIE);
@@ -330,6 +336,11 @@ int voieOpposee(int voie) {
 
 // --------------------------------------------------------------------
 // NORMALISATION POSITION MOTEUR
+// La librairie AccelStepper calcul un nombre de pas absolue
+// Si par exemple le pont fait deux tours d'un moteur 40 pas
+// la position courante du moteur sera égale à 80
+// Le calcul du modulo parmet de ramener la position
+// dans l'intervalle [10..stepsPerRevolution]
 // --------------------------------------------------------------------
 long normaliserPosition() {
 
