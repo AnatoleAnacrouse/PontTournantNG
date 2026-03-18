@@ -1,54 +1,84 @@
-// --------------------------------------------------------------------
-// PONT TOURNANT NOUVELLE GÉNÉRATION – VERSION V0.1
-//
-#define VERSION        "V0.1"
-//
-// --------------------------------------------------------------------
+// ====================================================================================
+//                         PONT TOURNANT NOUVELLE GÉNÉRATION
+// ====================================================================================
+#define VERSION   "V0.1"
+// Auteur  : M. EPARDEAU et F. FRANKE
+// Date    : 17 mars 2026
+// Projet  : Contrôle d’un pont tournant motorisé pour maquette ferroviaire
+//           - Permet de déplacer une locomotive entre une voie d’entrée et une voie 
+//           du dépôt, avec ou sans retournement, via un pont tournant motorisé.
+//           - Une fonction de "homing" permet de rechercher la position de la voie
+//           de garage.          
+//           - Un diagnostique est lancé au démarrage afin de présenter la position 
+//           du moteur, la voie courante et l'état capteur Hall
+//           - Le mode MAINTENANCE permet de déplacer manuellement le pont par 
+//           pas de 1 ou 10.
+//           - Un mode CALIBRATION permet d'ajuster précisement la position de 
+//            chaque voie et de sauvegarder en EEPROM la configuration.
+//           - Les position des voies ainsie que la position courante du pont sont 
+//           sauvegardées en EEPROM. Un magic byte (0xA5) permet de vérifier 
+//           l'intégrité des données et de les réinitialiser si elles sont corrompues.
+// ------------------------------------------------------------------------------------
+// CONFIGURATION
+// - Arduino ou compatible
+// - Moteur pas à pas : 400 pas/tour, piloté via un driver moteur A4988, 
+//                      pins Step (12), Dir (11), ENA est laissée libre
+// - Capteur Hall     : pin A0 pour détection position zéro (pull-up interne activé)
+// - LCD I2C 20 x 4   : adresse 0x27, 20x4, pins SDA (A4), SCL (A5)
+// - Clavier 4x4      : lignes (9,8,7,6), colonnes (5,4,3,2)
+// - Buzzer           : pin 13
+// - EEPROM           : pour la sauvegarde des positions des voies 
+//                      et de la voie courante
+// ====================================================================================
+
+// ------------------------------------------------------------------------------------
+// LIBRAIRIES
+// ------------------------------------------------------------------------------------
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <Keypad.h>
 #include <AccelStepper.h>
 #include <EEPROM.h>
 
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 // CONFIGURATION GÉNÉRALE
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 #define JESUS_CHRIST   false
 #define OK             0
 #define ABANDON       -1
 
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 // CONSTANTES MOTEUR
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 #define SPEED_NORMAL     700
 #define ACCEL_NORMAL     200
-#define SPEED_HOMING     300
+#define SPEED_HOMING      50
 #define ACCEL_HOMING     100
 
-// --------------------------------------------------------------------
-// CONSTANTES AFFICHAGE
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
+// CONSTANTES D'AFFICHAGE
+// ------------------------------------------------------------------------------------
 #define TIMEOUT_MSG        1500   // durée affichage messages courts (ms)
 #define TIMEOUT_ERREUR      800   // durée affichage erreurs (ms)
 #define TIMEOUT_SAUVEGARDE  800   // durée confirmation sauvegarde (ms)
 
-// --------------------------------------------------------------------
-// CAPTEUR HALL / BUZZER
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
+// CAPTEUR HALL & BUZZER
+// ------------------------------------------------------------------------------------
 const int hallPin   = A0;
 const int buzzerPin = 13;
 
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 // LCD I2C 20x4
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 LiquidCrystal_I2C lcd(0x27, 20, 4);
 
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 // KEYPAD 4x4 
 // U : Up / avancer               D : Down / reculer
 // L : Left / Déplacer à gauche   R : Right / Déplacer à droite
 // V : Valider                    E : Echap / Annuler
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 #define ROWS 4
 #define COLS 4
 
@@ -64,19 +94,25 @@ byte colKpPin[COLS] = {5, 4, 3, 2};
 
 Keypad keypad = Keypad(makeKeymap(kpKeys), rowKpPin, colKpPin, ROWS, COLS);
 
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 // MOTEUR PAS À PAS
-// --------------------------------------------------------------------
+// La broche ENA du driver n'est pas connectée à l'Arduino et restera donc à l'état bas.
+// Un courant circulera dans les bobines du moteur même à l'arrêt ce qui permettra au
+// pont de rester parfaitement aligné face aux voies. Par contre, le driver A4988 et 
+// le moteur vont chauffer. Il est donc impératif de l est plus efficace de régler 
+// correctement le potentiomètre de courant sur le driver A4988 à la valeur minimale
+// afin d'éviter une surchauffe.
+// ------------------------------------------------------------------------------------
 const int dirStepperPin  = 11;
 const int stepStepperPin = 12;
 const int stepsPerRevolution = 400;
 
-AccelStepper moteur(AccelStepper::DRIVER, stepStepperPin, dirStepperPin);
+AccelStepper pontTournant(AccelStepper::DRIVER, stepStepperPin, dirStepperPin);
 
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 // POSITIONS DES VOIES (1..40) — valeurs par défaut
 // Chargées / écrasées depuis EEPROM au démarrage
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 #define NB_MAX_VOIE 40
 
 int tabVoie[NB_MAX_VOIE + 1] = {
@@ -87,32 +123,23 @@ int tabVoie[NB_MAX_VOIE + 1] = {
   310, 320, 330, 340, 350, 360, 370, 380, 390, 400
 };
 
-// --------------------------------------------------------------------
+const byte voieEntree = 0;
+int voieCourante = voieEntree;
+
+// ------------------------------------------------------------------------------------
 // ADRESSES EEPROM
 // tabVoie occupe (NB_MAX_VOIE+1) * sizeof(int) octets
 // voieCourante est stockée juste après
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 #define EEPROM_ADDR_VOIES         0
 #define EEPROM_ADDR_VOIE_COURANTE ((NB_MAX_VOIE + 1) * sizeof(int))
 #define EEPROM_MAGIC_ADDR         (EEPROM_ADDR_VOIE_COURANTE + sizeof(int))
 #define EEPROM_MAGIC_VALUE        0xA5   // marqueur de données valides
 
-// Copie des valeurs par défaut pour la validation EEPROM
-const int tabVoieDefaut[NB_MAX_VOIE + 1] = {
-    0,
-   10,  20,  30,  40,  50,  60,  70,  80,  90, 100,
-  110, 120, 130, 140, 150, 160, 170, 180, 190, 200,
-  210, 220, 230, 240, 250, 260, 270, 280, 290, 300,
-  310, 320, 330, 340, 350, 360, 370, 380, 390, 400
-};
-
-const byte voieEntree = 0;
-int voieCourante = voieEntree;
-
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 // ENUM MENU PRINCIPAL
 // Évite les magic numbers dans loop()
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 enum TypeManoeuvre {
   MANOEUVRE_ENTREE      = 0,
   MANOEUVRE_SORTIE      = 1,
@@ -120,35 +147,35 @@ enum TypeManoeuvre {
   MANOEUVRE_CALIBRATION = 3
 };
 
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 // OUTILS
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 void beep() {
   tone(buzzerPin, 1000, 120);
   delay(150);
   noTone(buzzerPin);
 }
 
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 void lcdClearLine(byte line) {
   lcd.setCursor(0, line);
   lcd.print("                    ");
 }
 
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 // EEPROM — SAUVEGARDE ET CHARGEMENT
 // ATTENTION : Limite la duréé de vie de l'EEPROM => ne devrait être fait
-//             que avant d'éteindre le pont
-// --------------------------------------------------------------------
+//             que avant d'éteindre le pont ou sur demande (diagnostique par exe.)
+// ------------------------------------------------------------------------------------
 void sauvegarderVoieCourante() {
-  EEPROM.put(EEPROM_ADDR_VOIE_COURANTE, voieCourante);
+  //EEPROM.put(EEPROM_ADDR_VOIE_COURANTE, voieCourante);
 }
 
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 // Gere en EEPROM la configuration du pont (tabVoie et voieCourante)
 // et vérifie que ces donnes sont presentes et valides.
 // Un magic byte permet de determiner le type d'un fichier
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 void chargerEEPROM() {
 
   // Détecte si l'EEPROM a déjà été initialisée
@@ -224,9 +251,9 @@ void chargerEEPROM() {
   }
 }
 
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 // BARRE DE PROGRESSION LCD
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 void afficherProgression(float progress) {
 
   // Clamp entre 0.0 et 1.0
@@ -246,9 +273,9 @@ void afficherProgression(float progress) {
   lcd.print("%   ");
 }
 
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 // DIAGNOSTIC
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 void Diagnostic() {
 
   char touche = '\0';
@@ -260,7 +287,7 @@ void Diagnostic() {
 
   lcd.setCursor(0, 1);
   lcd.print(" Pos:");
-  lcd.print(moteur.currentPosition());
+  lcd.print(pontTournant.currentPosition());
   lcd.print("  Voie:");
   lcd.print(voieCourante);
 
@@ -279,9 +306,9 @@ void Diagnostic() {
   } while (!entreeValide);
 }
 
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 // HOMING AVEC CAPTEUR HALL
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 void homing() {
 
   lcd.clear();
@@ -290,33 +317,46 @@ void homing() {
   lcd.setCursor(0, 1);
   lcd.print("Recherche origine...");
 
-  moteur.setMaxSpeed(SPEED_HOMING);
-  moteur.setAcceleration(ACCEL_HOMING);
+  // Vitesse et accélérations réduites
+  pontTournant.setMaxSpeed(SPEED_HOMING);
+  pontTournant.setAcceleration(ACCEL_HOMING);
 
-  moteur.moveTo(moteur.currentPosition() - 2000);
+  // Planifier 4 révolution du moteur pour garantir que le capteur est bien trouvé
+  pontTournant.moveTo(pontTournant.currentPosition() + 3 * stepsPerRevolution);
 
-  while (digitalRead(hallPin) == HIGH) {
-    moteur.run();
+  // Arreter la rotation du moteur si le capteur Hall est détecté
+  // ou si la position cible est atteinte
+  while ((digitalRead(hallPin) == HIGH) && (pontTournant.distanceToGo() >0))  {
+    pontTournant.run();
   }
-
-  moteur.stop();
+  pontTournant.stop();
   delay(200);
 
-  moteur.setCurrentPosition(0);
-  moteur.setMaxSpeed(SPEED_NORMAL);
-  moteur.setAcceleration(ACCEL_NORMAL);
+  // Si la voie est detectée
+  if (digitalRead(hallPin) == LOW) {
+    // Définir la position de la voie d'entrée
+    pontTournant.setCurrentPosition(0);
+    voieCourante = voieEntree;
+    sauvegarderVoieCourante();
+    // Informer l'opérateur du succès 
+    lcd.setCursor(0, 3);
+    lcd.print("Origine OK          ");
+  }
+  else {
+    // Informer l'opérateur d'l'echec 
+    lcd.setCursor(0, 3);
+    lcd.print("ECHEC : origine NOK ");
+  }
 
-  voieCourante = voieEntree;
-  sauvegarderVoieCourante();
-
-  lcd.setCursor(0, 2);
-  lcd.print("Origine OK          ");
   delay(TIMEOUT_MSG);
+  // Vitesse et accélérations réduites
+  pontTournant.setMaxSpeed(SPEED_NORMAL);
+  pontTournant.setAcceleration(ACCEL_NORMAL);
 }
 
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 // HOMING OPTIONNEL AU DÉMARRAGE
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 void proposerHoming() {
 
   lcd.clear();
@@ -324,10 +364,9 @@ void proposerHoming() {
   lcd.print("Faire le homing ?");
   lcd.setCursor(0, 1);
   lcd.print("V : Oui   E : Non");
-  lcd.setCursor(0, 2);
-  lcd.print("(derniere voie: ");
+  lcd.setCursor(0, 3);
+  lcd.print("Derniere voie: ");
   lcd.print(voieCourante);
-  lcd.print(")");
 
   char touche = '\0';
   while (touche != 'V' && touche != 'E') {
@@ -337,41 +376,46 @@ void proposerHoming() {
   if (touche == 'V') homing();
 }
 
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 // VOIE OPPOSÉE (retournement)
-// --------------------------------------------------------------------
+// Retourne la voie opposée à la voie en paramètre.
+// Cette fonction ne fonctionne pas si le pont n'est pas symétrique
+// Cette fonction n'est pas valide si la première voie est la voie 1. Dans ce cas, 
+// il faudrait calculer : return ((NB_MAX_VOIE / 2 + voie - 1) % NB_MAX_VOIE) + 1;
+// ------------------------------------------------------------------------------------
 int voieOpposee(int voie) {
-  //return ((NB_MAX_VOIE / 2 + voie) % NB_MAX_VOIE);
-  return ((NB_MAX_VOIE / 2 + voie - 1) % NB_MAX_VOIE) + 1;
+  return ((NB_MAX_VOIE / 2 + voie) % NB_MAX_VOIE);
 }
 
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 // NORMALISATION POSITION MOTEUR
 // La librairie AccelStepper calcul un nombre de pas absolue
 // Si par exemple je fais deux tours d'un moteur 40 pas
 // la position courante du moteur sera égale à 80
 // Le calcul du modulo parmet de ramener la position
 // dans l'intervalle [10..stepsPerRevolution]
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 long normaliserPosition() {
 
-  long position = moteur.currentPosition() % stepsPerRevolution;
+  long position = pontTournant.currentPosition() % stepsPerRevolution;
+
   if (position < 0) {
     position += stepsPerRevolution;
   }
-  moteur.setCurrentPosition(position);
+
+  pontTournant.setCurrentPosition(position);
   return position;
 }
 
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 // CALCUL DU PLUS COURT CHEMIN (optimiser le trajet du pont roulant)
-//  Le pont roulant peut tourner dans les deux sens SAM et SIAM.
-//  Pour minimiser le déplacement du pont, on calcule la distance 
-//  entre la position actuelle et la cible. Si cette distance est plus grande
-//  que la moitié d’un tour complet, on tourne dans l’autre sens. 
-//  Pour cela, au lieu d'ajouter la distance qui sépare la position actuelle
-//  vers la position cible, on soustrait cette distance.
-// --------------------------------------------------------------------
+// Le pont roulant peut tourner dans les deux sens SAM et SIAM.
+// Pour minimiser le déplacement du pont, on calcule la distance 
+// entre la position actuelle et la cible. Si cette distance est plus grande
+// que la moitié d’un tour complet, on tourne dans l’autre sens. 
+// Pour cela, au lieu d'ajouter la distance qui sépare la position actuelle
+// vers la position cible, on soustrait cette distance.
+// ------------------------------------------------------------------------------------
 long calculerPlusCourtChemin(long posActuelle, long posCible) {
 
   // Calculer la distance entre la position actuelle et la position cible
@@ -379,46 +423,47 @@ long calculerPlusCourtChemin(long posActuelle, long posCible) {
 
   // Si la distance absolue est supérieure à la moitié d'un tour complet
   if (abs(distance) > stepsPerRevolution / 2) {
-    // Ajuster la distance pour prendre le chemin le plus court
+    // Ajuster la distance pour prendre le chemin le plus court :
+    //   - si la distance est positive on soustrait un tour complet
+    //   - si la distance est négative on ajoute un tour complet
     distance += (distance > 0) ? -stepsPerRevolution : stepsPerRevolution;
   }
 
   return distance;
 }
 
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 // DÉPLACEMENT AVEC BARRE DE PROGRESSION
-// CORRECTION : garde contre division par zéro si cible == position
-// --------------------------------------------------------------------
-void moteurAllerA(long cible) {
+// ------------------------------------------------------------------------------------
+void pontTournantAllerA(long cible) {
 
-  long depart = moteur.currentPosition();
+  // Définir la position de départ et le nombre de pas
+  long depart = pontTournant.currentPosition();
   long distanceTotale = abs(cible - depart);
 
-  // Garde : rien à faire si déjà en position
+  // Rien à faire si le pont est déjà en position
   if (distanceTotale == 0) {
     afficherProgression(1.0);
     return;
   }
 
-  moteur.moveTo(cible);
-
-  while (moteur.distanceToGo() != 0) {
-    moteur.run();
-    long distanceParcourue = abs(moteur.currentPosition() - depart);
+  // Déplacer le pont en affichant la progression
+  pontTournant.moveTo(cible);
+  while (pontTournant.distanceToGo() != 0) {
+    pontTournant.run();
+    long distanceParcourue = abs(pontTournant.currentPosition() - depart);
     float progress = (float)distanceParcourue / (float)distanceTotale;
     afficherProgression(progress);
   }
-
   afficherProgression(1.0);
 }
 
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 // DÉPLACEMENT DU PONT TOURNANT
-// --------------------------------------------------------------------
-int deplacerPT(const int surVoie, const int retournement) {
+// ------------------------------------------------------------------------------------
+int deplacerPT(const int versVoie, const int retournement) {
 
-  int voieCible = surVoie;
+  int voieCible = versVoie;
 
   // Si retournement alors choisir la voie d'en face
   if (retournement) voieCible = voieOpposee(voieCible);
@@ -426,6 +471,7 @@ int deplacerPT(const int surVoie, const int retournement) {
   // Si on est deja sur la voie  alors ne rien faire
   if (voieCible == voieCourante) return OK;
 
+  // Mettre à jour l'affichage
   lcdClearLine(3);
   lcd.setCursor(0, 3);
   lcd.print("Rotation...");
@@ -437,7 +483,7 @@ int deplacerPT(const int surVoie, const int retournement) {
   int distance = calculerPlusCourtChemin(posActuelle, tabVoie[voieCible]);
 
   // Deplacer le pont
-  moteurAllerA(posActuelle + distance);
+  pontTournantAllerA(posActuelle + distance);
 
   // Remettre a jour la configuration
   voieCourante = voieCible;
@@ -446,9 +492,9 @@ int deplacerPT(const int surVoie, const int retournement) {
   return OK;
 }
 
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 // MENU PRINCIPAL
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 const char* manoeuvres[] = {
   "Entree", "Sortie", "Maintenance", "Calibration" 
 };
@@ -507,9 +553,9 @@ int saisirTypeManoeuvre() {
   }
 }
 
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 // SAISIE NUMÉRO DE VOIE
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 int saisirNumeroVoie() {
 
   char touche;
@@ -568,9 +614,9 @@ int saisirNumeroVoie() {
   }
 }
 
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 // SAISIE RETOURNEMENT
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 const char* ouiNon[] = {"Non", "Oui"};
 
 int demanderRetournement() {
@@ -605,9 +651,9 @@ int demanderRetournement() {
   }
 }
 
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 // MODE MAINTENANCE
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 void modeMaintenance() {
 
   char touche = '\0';
@@ -634,20 +680,20 @@ void modeMaintenance() {
                       (touche == 'E'));
     } while (!entreeValide);
 
-    if (touche == 'U') moteur.move(10);
-    if (touche == 'D') moteur.move(-10);
-    if (touche == 'R') moteur.move(1);
-    if (touche == 'L') moteur.move(-1);
+    if (touche == 'U') pontTournant.move(10);
+    if (touche == 'D') pontTournant.move(-10);
+    if (touche == 'R') pontTournant.move(1);
+    if (touche == 'L') pontTournant.move(-1);
     if (touche == 'E') return;
 
-    moteur.runToPosition();
+    pontTournant.runToPosition();
     delay(300);
   }
 }
 
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 // MODE CALIBRATION DES VOIES
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 void modeCalibration() {
 
   char touche = '\0';
@@ -702,9 +748,9 @@ void modeCalibration() {
   }
 }
 
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 // SETUP
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 void setup() {
 
   Serial.begin(9600);
@@ -719,8 +765,8 @@ void setup() {
   lcd.print(VERSION);
   delay(TIMEOUT_MSG);
 
-  moteur.setMaxSpeed(SPEED_NORMAL);
-  moteur.setAcceleration(ACCEL_NORMAL);
+  pontTournant.setMaxSpeed(SPEED_NORMAL);
+  pontTournant.setAcceleration(ACCEL_NORMAL);
 
   // Chargement EEPROM avec validation
   chargerEEPROM();
@@ -728,13 +774,13 @@ void setup() {
   // Diagnostic au démarrage (infos position, capteur Hall, version)
   Diagnostic();
 
-  // Homing optionnel (l'opérateur choisit)
+  // Homing optionnel
   proposerHoming();
 }
 
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 // BOUCLE PRINCIPALE
-// --------------------------------------------------------------------
+// ------------------------------------------------------------------------------------
 void loop() {
 
   int retournementChoisi;
