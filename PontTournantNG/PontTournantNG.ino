@@ -333,14 +333,14 @@ void homing() {
 
   // Arreter la rotation du moteur si le capteur Hall est détecté
   // ou si la position cible est atteinte
-  while ((digitalRead(hallPin) == HIGH) && (pontTournant.distanceToGo() >0))  {
+  while ((digitalRead(hallPin) == LOW) && (pontTournant.distanceToGo() >0))  {
     pontTournant.run();
   }
   pontTournant.stop();
   delay(200);
 
   // Si la voie est detectée
-  if (digitalRead(hallPin) == LOW) {
+  if (digitalRead(hallPin) == HIGH) {
     // Définir la position de la voie d'entrée
     pontTournant.setCurrentPosition(0);
     voieCourante = voieEntree;
