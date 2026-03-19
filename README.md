@@ -25,7 +25,7 @@ Le pont tournant permet de faire pivoter une voie pour aligner une locomotive av
 |-----------|-----------------|-----------------|
 | **Arduino** | Uno / Nano / Mega | - |
 | **Pont tournant** | JOUEF, 40 voies max, 9° entre voies | - |
-| **Moteur pas-à-pas** | NEMA 14, 200 pas/rotation, réduction 8:1 (400 pas/tour) |  |
+| **Moteur pas-à-pas** | NEMA 14, 200 pas/rotation, réduction 8:1 (400 pas/tour) | - |
 | **Driver moteur** | A4988 | DIR: D11, STEP: D12 |
 | **Afficheur LCD** | 20x4, I2C, adresse 0x27 | SDA: A4, SCL: A5 |
 | **Clavier** | 4x4 matriciel | Lignes: D9,D8,D7,D6; Colonnes: D5,D4,D3,D2 |
