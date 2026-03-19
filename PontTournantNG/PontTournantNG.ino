@@ -134,7 +134,7 @@ int voieCourante = voieEntree;
 #define EEPROM_ADDR_VOIES         0
 #define EEPROM_ADDR_VOIE_COURANTE ((NB_MAX_VOIE + 1) * sizeof(int))
 #define EEPROM_MAGIC_ADDR         (EEPROM_ADDR_VOIE_COURANTE + sizeof(int))
-#define EEPROM_MAGIC_VALUE        0xA5   // marqueur de données valides
+#define EEPROM_MAGIC_VALUE        0xA5
 
 // ------------------------------------------------------------------------------------
 // ENUM MENU PRINCIPAL
@@ -163,12 +163,19 @@ void lcdClearLine(byte line) {
 }
 
 // ------------------------------------------------------------------------------------
-// EEPROM — SAUVEGARDE ET CHARGEMENT
-// ATTENTION : Limite la duréé de vie de l'EEPROM => ne devrait être fait
-//             que avant d'éteindre le pont ou sur demande (diagnostique par exe.)
+// EEPROM — SAUVEGARDE DE LA VOIE COURANTE
+// ATTENTION : l'EEPROM est limitée à 100 0000 écritures. On ne sauvegarde la voie
+//               courante que si la valeur a changée.
 // ------------------------------------------------------------------------------------
 void sauvegarderVoieCourante() {
-  //EEPROM.put(EEPROM_ADDR_VOIE_COURANTE, voieCourante);
+  
+  int voie;
+  EEPROM.get(EEPROM_ADDR_VOIE_COURANTE, voie);
+  
+  if (voieCourante != voie) {
+    EEPROM.put(EEPROM_ADDR_VOIE_COURANTE, voieCourante);
+    EEPROM.put(EEPROM_MAGIC_ADDR, (byte)EEPROM_MAGIC_VALUE);
+  }
 }
 
 // ------------------------------------------------------------------------------------
@@ -188,7 +195,7 @@ void chargerEEPROM() {
   // alors suvegarder les données (tableau des voies et voie courante)
   // puis marquer l'EEPROM comme initialisée (magic byte)
   if (magic != EEPROM_MAGIC_VALUE) {
-    EEPROM.put(0, tabVoie);
+    EEPROM.put(EEPROM_ADDR_VOIES, tabVoie);
     EEPROM.put(EEPROM_ADDR_VOIE_COURANTE, voieCourante);
     EEPROM.put(EEPROM_MAGIC_ADDR, (byte)EEPROM_MAGIC_VALUE);
 
@@ -348,7 +355,7 @@ void homing() {
     lcd.print("ECHEC : origine NOK ");
   }
 
-  delay(TIMEOUT_MSG);
+  delay(2*TIMEOUT_MSG);
   // Vitesse et accélérations réduites
   pontTournant.setMaxSpeed(SPEED_NORMAL);
   pontTournant.setAcceleration(ACCEL_NORMAL);
