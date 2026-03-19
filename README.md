@@ -2,6 +2,8 @@
 
 ## 📖 Description
 
+### Objectifs du projet
+
 Ce projet permet de gérer un **pont tournant ferroviaire** avec un **Arduino**. Il s'agit d'une solution de contrôle complet et modulaire pour automatiser le positionnement d'un pont tournant destiné à une maquette ferroviaire.
 
 Le pont tournant permet de faire pivoter une voie pour aligner une locomotive avec une voie d'entrée/sortie et les différentes voies de garage. Le système gère automatiquement l'optimisation des trajets, la sauvegarde de l'état en EEPROM, et propose plusieurs modes d'opération.
@@ -23,7 +25,7 @@ Le pont tournant permet de faire pivoter une voie pour aligner une locomotive av
 |-----------|-----------------|-----------------|
 | **Arduino** | Uno / Nano / Mega | - |
 | **Pont tournant** | JOUEF, 40 voies max, 9° entre voies | - |
-| **Moteur pas-à-pas** | NEMA 14, 200 pas/rotation, réduction 8:1 (400 pas/tour) | DIR: D11, STEP: D12 |
+| **Moteur pas-à-pas** | NEMA 14, 200 pas/rotation, réduction 8:1 (400 pas/tour) |  |
 | **Driver moteur** | A4988 | DIR: D11, STEP: D12 |
 | **Afficheur LCD** | 20x4, I2C, adresse 0x27 | SDA: A4, SCL: A5 |
 | **Clavier** | 4x4 matriciel | Lignes: D9,D8,D7,D6; Colonnes: D5,D4,D3,D2 |
@@ -197,19 +199,7 @@ Ajustement **précis** de la position de chaque voie et sauvegarde en EEPROM.
 
 ---
 
-## 🚀 Procédures de Démarrage
-
-### 1. Initialisation au Power-on
-
-```
-1. Affichage: "Pont Tournant V0.1"
-2. Chargement EEPROM (avec validation)
-3. Diagnostic : position, voie courante, capteur Hall
-4. Proposition de homing
-5. Menu principal
-```
-
-### 2. Homing (Recherche de la position zéro)
+## 🚀 Homing (Recherche de la position zéro)
 
 La fonction `homing()` :
 - Utilise le **capteur Hall** pour trouver la voie d'entrée
@@ -217,10 +207,6 @@ La fonction `homing()` :
 - Réinitialise la position du moteur à **0 pas**
 - Définit `voieCourante = 0`
 - Sauvegarde en EEPROM
-
-**Vitesses réduites pendant le homing :**
-- Speed: 50 pas/s (vs 700 normal)
-- Acceleration: 100 (vs 200 normal)
 
 ---
 
@@ -269,13 +255,6 @@ Cela évite les débordements lors de manœuvres répétées.
 
 ### 💾 Gestion EEPROM
 
-**Adresses EEPROM :**
-```cpp
-0x00 - 0xA3    : tabVoie[] (41 × 4 bytes = 164 bytes)
-0xA4 - 0xA7    : voieCourante (4 bytes)
-0xA8           : Magic byte (0xA5)
-```
-
 **Stratégie :**
 - Vérification du magic byte au démarrage
 - Validation des données (0 ≤ pos ≤ 400)
@@ -284,81 +263,7 @@ Cela évite les débordements lors de manœuvres répétées.
 
 ---
 
-## 🔧 Configuration Logicielle
-
-### Constantes de vitesse et accélération
-
-```cpp
-#define SPEED_NORMAL     700    // pas/s en mode normal
-#define ACCEL_NORMAL     200    // accélération normal
-#define SPEED_HOMING      50    // pas/s en mode homing
-#define ACCEL_HOMING     100    // accélération homing
-```
-
-### Timeouts d'affichage
-
-```cpp
-#define TIMEOUT_MSG        1500  // Durée messages courts (ms)
-#define TIMEOUT_ERREUR      800  // Durée affichage erreurs (ms)
-#define TIMEOUT_SAUVEGARDE  800  // Durée confirmation sauvegarde (ms)
-```
-
----
-
-## 📦 Structure du Code
-
-```
-PontTournantNG.ino
-├── Configuration générale
-│   ├── Librairies
-│   ├── Constantes moteur, affichage
-│   └── Pins Arduino
-├── Initialisation
-│   ├── EEPROM (charger/sauvegarder)
-│   ├── LCD et clavier
-│   └── Moteur pas-à-pas
-├── Fonctions utilitaires
-│   ├── beep()
-│   ├── lcdClearLine()
-│   ├── afficherProgression()
-│   └── normaliserPosition()
-├── Logique de déplacement
-│   ├── calculerPlusCourtChemin()
-│   ├── pontTournantAllerA()
-│   └── deplacerPT()
-├── Interface utilisateur
-│   ├── saisirTypeManoeuvre()
-│   ├── saisirNumeroVoie()
-│   ├── demanderRetournement()
-│   └── Diagnostic()
-├── Modes d'opération
-│   ├── modeMaintenance()
-│   ├── modeCalibration()
-│   ├── homing()
-│   └── proposerHoming()
-└── Boucle principale
-    └── loop()
-```
-
----
-
-## 🐛 Codes d'Erreur et Diagnostics
-
-### Affichages possibles
-
-| Affichage | Signification | Action |
-|-----------|--------------|--------|
-| `Init EEPROM...` | Première initialisation | Valeurs par défaut chargées |
-| `EEPROM invalide !` | EEPROM corrompue | Valeurs par défaut restaurées |
-| `Homing capteur Hall` | Recherche position zéro | En cours... |
-| `Origine OK` | Homing réussi | Pont à la position 0 |
-| `ECHEC : origine NOK` | Capteur Hall non détecté | Vérifier le capteur |
-| `Erreur: 1 a 40` | Numéro de voie invalide | Saisie rejetée |
-| `Rotation...` | Déplacement en cours | Barre de progression affichée |
-| `Manoeuvre OK` | Opération réussie | Retour au menu principal |
-| `Sauvegarde OK` | Calibration sauvegardée | Confirmation audio |
-
-### Mode Diagnostic (touche V au démarrage)
+## ⚙️ Mode Diagnostic (touche V au démarrage)
 
 Affiche :
 - Position courante du moteur
@@ -407,51 +312,6 @@ Affiche :
    - L : Voie précédente
 5. V : Sauvegarder en EEPROM
 6. E : Quitter mode calibration
-```
-
----
-
-## 📊 Performances et Spécifications
-
-| Paramètre | Valeur |
-|-----------|--------|
-| **Résolution moteur** | 400 pas/tour (10 pas/voie) |
-| **Nombre de voies** | 40 (extensible) |
-| **Vitesse normale** | 700 pas/s (1,75 tour/s) |
-| **Vitesse homing** | 50 pas/s (0,125 tour/s) |
-| **Temps de trajet max** | ~1,2 secondes (400 pas) |
-| **Écritures EEPROM** | Limitées à ~100 000 |
-| **Refresh LCD** | ~60 ms par frame |
-| **Timeout inactivité LCD** | 1500 ms pour messages |
-
----
-
-## 🔌 Installation et Compilation
-
-### Prérequis
-- Arduino IDE 1.8.0+
-- Bibliothèques Arduino :
-  - `Wire.h` (I2C)
-  - `LiquidCrystal_I2C.h` (LCD)
-  - `Keypad.h` (clavier matriciel)
-  - `AccelStepper.h` (moteur pas-à-pas)
-  - `EEPROM.h` (mémoire)
-
-### Installation des librairies
-```
-Arduino IDE → Sketch → Include Library → Manage Libraries
-Rechercher et installer :
-- LiquidCrystal_I2C (by Frank de Brabander)
-- Keypad (by Mark Stanley)
-- AccelStepper (by Mike McCauley)
-```
-
-### Compilation et upload
-```
-1. Ouvrir PontTournantNG.ino dans Arduino IDE
-2. Sélectionner la carte : Tools → Board
-3. Sélectionner le port : Tools → Port
-4. Télécharger : Sketch → Upload
 ```
 
 ---
