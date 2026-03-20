@@ -170,12 +170,23 @@ void lcdClearLine(byte line) {
 void sauvegarderVoieCourante() {
   
   int voie;
+  // Ne sauver la voie courante que si elle est différente en EEPROM
   EEPROM.get(EEPROM_ADDR_VOIE_COURANTE, voie);
-  
   if (voieCourante != voie) {
     EEPROM.put(EEPROM_ADDR_VOIE_COURANTE, voieCourante);
     EEPROM.put(EEPROM_MAGIC_ADDR, (byte)EEPROM_MAGIC_VALUE);
   }
+}
+
+// ------------------------------------------------------------------------------------
+// EEPROM — SAUVEGARDE DE LA CONFIGURATION COMPLETE DU PONT
+// ------------------------------------------------------------------------------------
+void sauverConfigurationPontTournant() {
+  
+  EEPROM.put(EEPROM_ADDR_VOIES, tabVoie);
+  EEPROM.put(EEPROM_ADDR_VOIE_COURANTE, voieCourante);
+  EEPROM.put(EEPROM_MAGIC_ADDR, (byte)EEPROM_MAGIC_VALUE);
+
 }
 
 // ------------------------------------------------------------------------------------
@@ -215,44 +226,48 @@ void chargerEEPROM() {
 
   // Lire le tableau des voies depuis l'EEPROM 
   // dans un buffer temporaire afin de valider les voies
-  int buf[NB_MAX_VOIE + 1];
-  EEPROM.get(0, buf);
-
+  int voies[NB_MAX_VOIE + 1];
+  EEPROM.get(EEPROM_ADDR_VOIES, voies);
   // Vérifier que les données sont dans la plage autorisée 
   // [0, stepsPerRevolution]
   bool valide = true;
-  for (int i = 1; i <= NB_MAX_VOIE; i++) {
-    if (buf[i] < 0 || buf[i] > stepsPerRevolution) {
+  for (int i = 0; i <= NB_MAX_VOIE; i++) {
+    if (voies[i] < 0 || voies[i] > stepsPerRevolution) {
       valide = false;
       break;
     }
   }
 
   // Si les donnees ne sont pas corrompues
-  // copier le buffer dans le tableau actif
+  // copier les voies dans le tableau des voies
   if (valide) {
-    memcpy(tabVoie, buf, sizeof(tabVoie));
+    memcpy(tabVoie, voies, sizeof(tabVoie));
 
   //sinon l'EEPROM est corrompue
+  } 
+  else {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("EEPROM invalide !");
+    lcd.setCursor(0, 1);
+    lcd.print("Reécriture des voies");
+    delay(2000);
+    // Réécrire les valeurs saines pour corriger l'EEPROM
+    EEPROM.put(EEPROM_ADDR_VOIES, tabVoie);
+  }
+
+  // --- Charger la voie courante ---
+  int voieEEPROM;
+  EEPROM.get(EEPROM_ADDR_VOIE_COURANTE, voieEEPROM);
+  if (voieEEPROM >= 0 && voieEEPROM <= NB_MAX_VOIE) {
+    voieCourante = voieEEPROM;
   } else {
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("EEPROM invalide !");
     lcd.setCursor(0, 1);
-    lcd.print("Valeurs defaut OK");
-    delay(2000);
-    // Réécrire les valeurs saines pour corriger l'EEPROM
-    EEPROM.put(0, tabVoie);
-  }
-
-  // --- Charger la voie courante ---
-
-  // Charger voieCourante
-  int voie;
-  EEPROM.get(EEPROM_ADDR_VOIE_COURANTE, voie);
-  if (voie >= 1 && voie <= NB_MAX_VOIE) {
-    voieCourante = voie;
-  } else {
+    lcd.print("Reécriture voie cour");
+    delay(2000);   
     voieCourante = voieEntree;
     sauvegarderVoieCourante();
   }
@@ -328,12 +343,12 @@ void homing() {
   pontTournant.setMaxSpeed(SPEED_HOMING);
   pontTournant.setAcceleration(ACCEL_HOMING);
 
-  // Planifier 4 révolution du moteur pour garantir que le capteur est bien trouvé
+  // Planifier 3 révolution du moteur pour garantir que le capteur est bien trouvé
   pontTournant.moveTo(pontTournant.currentPosition() + 3 * stepsPerRevolution);
 
   // Arreter la rotation du moteur si le capteur Hall est détecté
   // ou si la position cible est atteinte
-  while ((digitalRead(hallPin) == LOW) && (pontTournant.distanceToGo() >0))  {
+  while ((digitalRead(hallPin) == HIGH) && (pontTournant.distanceToGo() >0 ))  {
     pontTournant.run();
   }
   pontTournant.stop();
@@ -386,12 +401,10 @@ void proposerHoming() {
 // ------------------------------------------------------------------------------------
 // VOIE OPPOSÉE (retournement)
 // Retourne la voie opposée à la voie en paramètre.
-// Cette fonction ne fonctionne pas si le pont n'est pas symétrique
-// Cette fonction n'est pas valide si la première voie est la voie 1. Dans ce cas, 
-// il faudrait calculer : return ((NB_MAX_VOIE / 2 + voie - 1) % NB_MAX_VOIE) + 1;
+// Cette fonction ne fonctionne pas si le pont n'est pas symétrique.
 // ------------------------------------------------------------------------------------
 int voieOpposee(int voie) {
-  return ((NB_MAX_VOIE / 2 + voie) % NB_MAX_VOIE);
+  return ((NB_MAX_VOIE / 2 + voie - 1) % NB_MAX_VOIE) + 1;
 }
 
 // ------------------------------------------------------------------------------------
@@ -400,7 +413,7 @@ int voieOpposee(int voie) {
 // Si par exemple je fais deux tours d'un moteur 40 pas
 // la position courante du moteur sera égale à 80
 // Le calcul du modulo parmet de ramener la position
-// dans l'intervalle [10..stepsPerRevolution]
+// dans l'intervalle [0..stepsPerRevolution]
 // ------------------------------------------------------------------------------------
 long normaliserPosition() {
 
@@ -742,12 +755,10 @@ void modeCalibration() {
     if (touche == 'L' && voie > 1)           voie--;
 
     if (touche == 'V') {
-      EEPROM.put(0, tabVoie);
-      EEPROM.put(EEPROM_MAGIC_ADDR, (byte)EEPROM_MAGIC_VALUE);
+      sauverConfigurationPontTournant();
       lcdClearLine(3);
       lcd.setCursor(0, 3);
       lcd.print("Sauvegarde OK");
-      beep();
       delay(TIMEOUT_SAUVEGARDE);
     }
 
