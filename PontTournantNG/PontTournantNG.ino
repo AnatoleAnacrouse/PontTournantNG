@@ -1,7 +1,7 @@
 // ====================================================================================
 //                         PONT TOURNANT NOUVELLE GÉNÉRATION
 // ====================================================================================
-#define VERSION   "V0.1"
+#define VERSION   "V0.2"
 // Auteur  : M. EPARDEAU et F. FRANKE
 // Date    : 17 mars 2026
 // Projet  : Contrôle d’un pont tournant motorisé pour maquette ferroviaire
@@ -51,7 +51,7 @@
 // CONSTANTES MOTEUR
 // ------------------------------------------------------------------------------------
 #define SPEED_NORMAL     700
-#define ACCEL_NORMAL     200
+#define ACCEL_NORMAL     100
 #define SPEED_HOMING      50
 #define ACCEL_HOMING     100
 
@@ -105,7 +105,6 @@ Keypad keypad = Keypad(makeKeymap(kpKeys), rowKpPin, colKpPin, ROWS, COLS);
 // ------------------------------------------------------------------------------------
 const int dirStepperPin  = 11;
 const int stepStepperPin = 12;
-const int stepsPerRevolution = 400;
 
 AccelStepper pontTournant(AccelStepper::DRIVER, stepStepperPin, dirStepperPin);
 
@@ -115,7 +114,7 @@ AccelStepper pontTournant(AccelStepper::DRIVER, stepStepperPin, dirStepperPin);
 // ------------------------------------------------------------------------------------
 #define NB_MAX_VOIE 40
 
-int tabVoie[NB_MAX_VOIE + 1] = {
+const int tabVoie[NB_MAX_VOIE + 1] = {
     0,
    10,  20,  30,  40,  50,  60,  70,  80,  90, 100,
   110, 120, 130, 140, 150, 160, 170, 180, 190, 200,
@@ -124,7 +123,8 @@ int tabVoie[NB_MAX_VOIE + 1] = {
 };
 
 const byte voieEntree = 0;
-int voieCourante = voieEntree;
+const int stepsPerRevolution = 400;
+//int voieCourante = voieEntree;
 
 // ------------------------------------------------------------------------------------
 // ADRESSES EEPROM
@@ -135,6 +135,18 @@ int voieCourante = voieEntree;
 #define EEPROM_ADDR_VOIE_COURANTE ((NB_MAX_VOIE + 1) * sizeof(int))
 #define EEPROM_MAGIC_ADDR         (EEPROM_ADDR_VOIE_COURANTE + sizeof(int))
 #define EEPROM_MAGIC_VALUE        0xA5
+
+// ------------------------------------------------------------------------------------
+// CONFIGURATION DU PONT
+// ------------------------------------------------------------------------------------
+
+struct ConfigurationPontTournant {
+  byte magic;
+  int tabVoie[NB_MAX_VOIE + 1];
+  int voieCourante;
+};
+
+ConfigurationPontTournant configPT;
 
 // ------------------------------------------------------------------------------------
 // ENUM MENU PRINCIPAL
@@ -163,30 +175,31 @@ void lcdClearLine(byte line) {
 }
 
 // ------------------------------------------------------------------------------------
-// EEPROM — SAUVEGARDE DE LA VOIE COURANTE
+// SAUVEGARDE DE LA VOIE COURANTE EN EEPROM
 // ATTENTION : l'EEPROM est limitée à 100 0000 écritures. On ne sauvegarde la voie
 //               courante que si la valeur a changée.
 // ------------------------------------------------------------------------------------
 void sauvegarderVoieCourante() {
-  
-  int voie;
-  // Ne sauver la voie courante que si elle est différente en EEPROM
-  EEPROM.get(EEPROM_ADDR_VOIE_COURANTE, voie);
-  if (voieCourante != voie) {
-    EEPROM.put(EEPROM_ADDR_VOIE_COURANTE, voieCourante);
-    EEPROM.put(EEPROM_MAGIC_ADDR, (byte)EEPROM_MAGIC_VALUE);
+  int voieEE;
+
+  //EEPROM.get(offsetof(ConfigurationPontTournant, configPT.voieCourante), voieEE);
+  EEPROM.get(EEPROM_ADDR_VOIE_COURANTE, voieEE);
+
+  // On compare courante à la voie en EEPROM
+  if (configPT.voieCourante != voieEE) {
+    // On ne sauvegarde que s'il y a une différence
+    EEPROM.put(EEPROM_ADDR_VOIE_COURANTE, configPT.voieCourante);                                                      
   }
 }
 
 // ------------------------------------------------------------------------------------
-// EEPROM — SAUVEGARDE DE LA CONFIGURATION COMPLETE DU PONT
+// SAUVEGARDE DE LA CONFIGURATION COMPLETE DU PONT EN EEPROM
 // ------------------------------------------------------------------------------------
 void sauverConfigurationPontTournant() {
-  
-  EEPROM.put(EEPROM_ADDR_VOIES, tabVoie);
-  EEPROM.put(EEPROM_ADDR_VOIE_COURANTE, voieCourante);
-  EEPROM.put(EEPROM_MAGIC_ADDR, (byte)EEPROM_MAGIC_VALUE);
-
+  configPT.magic = EEPROM_MAGIC_VALUE;
+  configPT.voieCourante = voieEntree;
+  memcpy(configPT.tabVoie, tabVoie, sizeof(tabVoie));
+  EEPROM.put(EEPROM_ADDR_VOIES, configPT);
 }
 
 // ------------------------------------------------------------------------------------
@@ -196,20 +209,11 @@ void sauverConfigurationPontTournant() {
 // ------------------------------------------------------------------------------------
 void chargerEEPROM() {
 
-  // Détecte si l'EEPROM a déjà été initialisée
-  byte magic;
-  EEPROM.get(EEPROM_MAGIC_ADDR, magic);
+  EEPROM.get(EEPROM_ADDR_VOIES, configPT);
 
-  // --- Première utilisation ou EEPROM vierge ---
-
-  // Si l'EEPROM est vierge
-  // alors suvegarder les données (tableau des voies et voie courante)
-  // puis marquer l'EEPROM comme initialisée (magic byte)
-  if (magic != EEPROM_MAGIC_VALUE) {
-    EEPROM.put(EEPROM_ADDR_VOIES, tabVoie);
-    EEPROM.put(EEPROM_ADDR_VOIE_COURANTE, voieCourante);
-    EEPROM.put(EEPROM_MAGIC_ADDR, (byte)EEPROM_MAGIC_VALUE);
-
+  if (configPT.magic != EEPROM_MAGIC_VALUE) {
+    // Initialisation par défaut si vierge                                                      
+    sauverConfigurationPontTournant();
     // Afficher un message de confirmation sur l'écran LCD
     lcd.clear();
     lcd.setCursor(0, 0);
@@ -217,59 +221,39 @@ void chargerEEPROM() {
     lcd.setCursor(0, 1);
     lcd.print("Valeurs defaut OK");
     delay(TIMEOUT_MSG);
-
-    // Pas besoin de lire, on vient d'écrire les valeurs
-    return;
+    return; 
   }
-
-  // --- Lire et valider tabVoie ---
-
-  // Lire le tableau des voies depuis l'EEPROM 
-  // dans un buffer temporaire afin de valider les voies
-  int voies[NB_MAX_VOIE + 1];
-  EEPROM.get(EEPROM_ADDR_VOIES, voies);
-  // Vérifier que les données sont dans la plage autorisée 
-  // [0, stepsPerRevolution]
+  
+  // Si les données de la configuration sont en EEPROM
+  // il faut vérifier que ces données sont dans la plage autorisée [0, stepsPerRevolution]
   bool valide = true;
   for (int i = 0; i <= NB_MAX_VOIE; i++) {
-    if (voies[i] < 0 || voies[i] > stepsPerRevolution) {
-      valide = false;
+    if ((configPT.tabVoie[i] < 0) || (configPT.tabVoie[i] > stepsPerRevolution)) {
+      valide = false; 
       break;
     }
   }
-
-  // Si les donnees ne sont pas corrompues
-  // copier les voies dans le tableau des voies
-  if (valide) {
-    memcpy(tabVoie, voies, sizeof(tabVoie));
-
-  //sinon l'EEPROM est corrompue
-  } 
-  else {
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("EEPROM invalide !");
-    lcd.setCursor(0, 1);
-    lcd.print("Reécriture des voies");
-    delay(2000);
-    // Réécrire les valeurs saines pour corriger l'EEPROM
-    EEPROM.put(EEPROM_ADDR_VOIES, tabVoie);
+  // Vérifier que la voie courante est valide
+  if (valide) { 
+    if ((configPT.voieCourante  < 0) || (configPT.voieCourante > stepsPerRevolution)) {
+      valide = false; 
+    }
   }
 
-  // --- Charger la voie courante ---
-  int voieEEPROM;
-  EEPROM.get(EEPROM_ADDR_VOIE_COURANTE, voieEEPROM);
-  if (voieEEPROM >= 0 && voieEEPROM <= NB_MAX_VOIE) {
-    voieCourante = voieEEPROM;
-  } else {
+  // Si l'EEPROM est corrompue
+  if (!valide) {
+    // Prévenir l'opérateur
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("EEPROM invalide !");
     lcd.setCursor(0, 1);
-    lcd.print("Reécriture voie cour");
-    delay(2000);   
-    voieCourante = voieEntree;
-    sauvegarderVoieCourante();
+    lcd.print("Valeurs defaut OK");
+    delay(2000);
+    // Réinitialiser l'EEPROM
+    //configPT.magic = EEPROM_MAGIC_VALUE;
+    //configPT.voieCourante = voieEntree;
+    //memcpy(configPT.tabVoie, tabVoie, sizeof(tabVoie));
+    //sauverConfigurationPontTournant();
   }
 }
 
@@ -311,7 +295,7 @@ void Diagnostic() {
   lcd.print(" Pos:");
   lcd.print(pontTournant.currentPosition());
   lcd.print("  Voie:");
-  lcd.print(voieCourante);
+  lcd.print(configPT.voieCourante);
 
   lcd.setCursor(0, 2);
   lcd.print("Hall:");
@@ -343,22 +327,22 @@ void homing() {
   pontTournant.setMaxSpeed(SPEED_HOMING);
   pontTournant.setAcceleration(ACCEL_HOMING);
 
-  // Planifier 3 révolution du moteur pour garantir que le capteur est bien trouvé
+  // Planifier 4 révolution du moteur pour garantir que le capteur est bien trouvé
   pontTournant.moveTo(pontTournant.currentPosition() + 3 * stepsPerRevolution);
 
   // Arreter la rotation du moteur si le capteur Hall est détecté
   // ou si la position cible est atteinte
-  while ((digitalRead(hallPin) == HIGH) && (pontTournant.distanceToGo() >0 ))  {
+  while ((digitalRead(hallPin) == HIGH) && (pontTournant.distanceToGo() >0))  {
     pontTournant.run();
   }
   pontTournant.stop();
   delay(200);
 
   // Si la voie est detectée
-  if (digitalRead(hallPin) == HIGH) {
+  if (digitalRead(hallPin) == LOW) {
     // Définir la position de la voie d'entrée
     pontTournant.setCurrentPosition(0);
-    voieCourante = voieEntree;
+    configPT.voieCourante = voieEntree;
     sauvegarderVoieCourante();
     // Informer l'opérateur du succès 
     lcd.setCursor(0, 3);
@@ -388,7 +372,7 @@ void proposerHoming() {
   lcd.print("V : Oui   E : Non");
   lcd.setCursor(0, 3);
   lcd.print("Derniere voie: ");
-  lcd.print(voieCourante);
+  lcd.print(configPT.voieCourante);
 
   char touche = '\0';
   while (touche != 'V' && touche != 'E') {
@@ -401,10 +385,12 @@ void proposerHoming() {
 // ------------------------------------------------------------------------------------
 // VOIE OPPOSÉE (retournement)
 // Retourne la voie opposée à la voie en paramètre.
-// Cette fonction ne fonctionne pas si le pont n'est pas symétrique.
+// Cette fonction ne fonctionne pas si le pont n'est pas symétrique
+// Cette fonction n'est pas valide si la première voie est la voie 1. Dans ce cas, 
+// il faudrait calculer : return ((NB_MAX_VOIE / 2 + voie - 1) % NB_MAX_VOIE) + 1;
 // ------------------------------------------------------------------------------------
 int voieOpposee(int voie) {
-  return ((NB_MAX_VOIE / 2 + voie - 1) % NB_MAX_VOIE) + 1;
+  return ((NB_MAX_VOIE / 2 + voie) % NB_MAX_VOIE);
 }
 
 // ------------------------------------------------------------------------------------
@@ -413,7 +399,7 @@ int voieOpposee(int voie) {
 // Si par exemple je fais deux tours d'un moteur 40 pas
 // la position courante du moteur sera égale à 80
 // Le calcul du modulo parmet de ramener la position
-// dans l'intervalle [0..stepsPerRevolution]
+// dans l'intervalle [10..stepsPerRevolution]
 // ------------------------------------------------------------------------------------
 long normaliserPosition() {
 
@@ -489,24 +475,24 @@ int deplacerPT(const int versVoie, const int retournement) {
   if (retournement) voieCible = voieOpposee(voieCible);
 
   // Si on est deja sur la voie  alors ne rien faire
-  if (voieCible == voieCourante) return OK;
+  if (voieCible == configPT.voieCourante) return OK;
 
   // Mettre à jour l'affichage
   lcdClearLine(3);
   lcd.setCursor(0, 3);
-  lcd.print("Rotation...");
+  lcd.print("      Rotation...");
 
   // Normaliser si necessaire
   int posActuelle = normaliserPosition();
 
   // Optimiser le trajet du pont roulant
-  int distance = calculerPlusCourtChemin(posActuelle, tabVoie[voieCible]);
+  int distance = calculerPlusCourtChemin(posActuelle, configPT.tabVoie[voieCible]);
 
   // Deplacer le pont
   pontTournantAllerA(posActuelle + distance);
 
   // Remettre a jour la configuration
-  voieCourante = voieCible;
+  configPT.voieCourante = voieCible;
   sauvegarderVoieCourante();
 
   return OK;
@@ -518,9 +504,8 @@ int deplacerPT(const int versVoie, const int retournement) {
 const char* manoeuvres[] = {
   "Entree", "Sortie", "Maintenance", "Calibration" 
 };
-
 const int nbManoeuvres = 4;
-
+ 
 int saisirTypeManoeuvre() {
 
   char touche = '\0';
@@ -718,7 +703,7 @@ void modeCalibration() {
 
   char touche = '\0';
   bool entreeValide = false;
-  int voie = 1;
+  int voie = voieEntree;
 
   while (!JESUS_CHRIST) {
 
@@ -727,15 +712,13 @@ void modeCalibration() {
     lcd.print(" == CALIBRATION ==");
 
     lcd.setCursor(0, 1);
-    lcd.print("Voie ");
+    lcd.print("Voie "); 
     lcd.print(voie);
     lcd.print(" Offset:");
     lcd.print(tabVoie[voie]);
-    //lcd.print("    ");
 
     lcd.setCursor(0, 2);
     lcd.print("Offset:U=+  D=-");
-
     lcd.setCursor(0, 3);
     lcd.print("Voie:R=+ L=- V=Val");
 
@@ -749,8 +732,8 @@ void modeCalibration() {
                       (touche == 'E'));
     } while (!entreeValide);
 
-    if (touche == 'U') tabVoie[voie]++;
-    if (touche == 'D') tabVoie[voie]--;
+    if (touche == 'U') configPT.tabVoie[voie]++;
+    if (touche == 'D') configPT.tabVoie[voie]--;
     if (touche == 'R' && voie < NB_MAX_VOIE) voie++;
     if (touche == 'L' && voie > 1)           voie--;
 
@@ -765,13 +748,14 @@ void modeCalibration() {
     if (touche == 'E') return;
   }
 }
-
+                       
 // ------------------------------------------------------------------------------------
 // SETUP
 // ------------------------------------------------------------------------------------
 void setup() {
 
   Serial.begin(9600);
+
   pinMode(buzzerPin, OUTPUT);
   pinMode(hallPin, INPUT_PULLUP);
 
@@ -786,13 +770,8 @@ void setup() {
   pontTournant.setMaxSpeed(SPEED_NORMAL);
   pontTournant.setAcceleration(ACCEL_NORMAL);
 
-  // Chargement EEPROM avec validation
   chargerEEPROM();
-
-  // Diagnostic au démarrage (infos position, capteur Hall, version)
   Diagnostic();
-
-  // Homing optionnel
   proposerHoming();
 }
 
@@ -812,7 +791,7 @@ void loop() {
 
     // Amener une locomotive depuis la voie d’entrée vers une voie du dépôt.
     case MANOEUVRE_ENTREE:
-      if (voieCourante != voieEntree) {
+      if (configPT.voieCourante != voieEntree) {
         deplacerPT(voieEntree, false);
       }
       voieSelectionnee = saisirNumeroVoie();
