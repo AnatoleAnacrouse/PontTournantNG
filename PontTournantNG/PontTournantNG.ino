@@ -3,7 +3,7 @@
 // ====================================================================================
 #define VERSION   "V0.2"
 // Auteur  : M. EPARDEAU et F. FRANKE
-// Date    : 17 mars 2026
+// Date    : 21 mars 2026
 // Projet  : Contrôle d’un pont tournant motorisé pour maquette ferroviaire
 //           - Permet de déplacer une locomotive entre une voie d’entrée et une voie 
 //           du dépôt, avec ou sans retournement, via un pont tournant motorisé.
