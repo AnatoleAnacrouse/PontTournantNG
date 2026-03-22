@@ -63,6 +63,11 @@
 #define TIMEOUT_SAUVEGARDE  800   // durée confirmation sauvegarde (ms)
 
 // ------------------------------------------------------------------------------------
+// CONSTANTES DE DUREE MAX DU HOMING
+// ------------------------------------------------------------------------------------
+#define DELAY_WATCHDOG    10000
+
+// ------------------------------------------------------------------------------------
 // CAPTEUR HALL & BUZZER
 // ------------------------------------------------------------------------------------
 const int hallPin   = A0;
@@ -250,10 +255,7 @@ void chargerEEPROM() {
     lcd.print("Valeurs defaut OK");
     delay(2000);
     // Réinitialiser l'EEPROM
-    //configPT.magic = EEPROM_MAGIC_VALUE;
-    //configPT.voieCourante = voieEntree;
-    //memcpy(configPT.tabVoie, tabVoie, sizeof(tabVoie));
-    //sauverConfigurationPontTournant();
+    sauverConfigurationPontTournant();
   }
 }
 
@@ -327,12 +329,17 @@ void homing() {
   pontTournant.setMaxSpeed(SPEED_HOMING);
   pontTournant.setAcceleration(ACCEL_HOMING);
 
-  // Planifier 4 révolution du moteur pour garantir que le capteur est bien trouvé
+  // Planifier 3 révolutions du moteur pour garantir que le capteur est bien trouvé
   pontTournant.moveTo(pontTournant.currentPosition() + 3 * stepsPerRevolution);
 
+  // Armer un watchdog pour éviter une boucle infinie
+  unsigned long start = millis();
+
   // Arreter la rotation du moteur si le capteur Hall est détecté
-  // ou si la position cible est atteinte
-  while ((digitalRead(hallPin) == HIGH) && (pontTournant.distanceToGo() >0))  {
+  // ou si le nombre de révolutions est atteint
+  while ((digitalRead(hallPin) == HIGH) && (pontTournant.distanceToGo() > 0))  {
+    // Sortir de la boucle si le watchdog est tombé
+    if ((millis() - start) > DELAY_WATCHDOG) break;
     pontTournant.run();
   }
   pontTournant.stop();
@@ -385,12 +392,10 @@ void proposerHoming() {
 // ------------------------------------------------------------------------------------
 // VOIE OPPOSÉE (retournement)
 // Retourne la voie opposée à la voie en paramètre.
-// Cette fonction ne fonctionne pas si le pont n'est pas symétrique
-// Cette fonction n'est pas valide si la première voie est la voie 1. Dans ce cas, 
-// il faudrait calculer : return ((NB_MAX_VOIE / 2 + voie - 1) % NB_MAX_VOIE) + 1;
+// Cette fonction ne fonctionne pas si le pont n'est pas symétrique.
 // ------------------------------------------------------------------------------------
 int voieOpposee(int voie) {
-  return ((NB_MAX_VOIE / 2 + voie) % NB_MAX_VOIE);
+  return ((NB_MAX_VOIE / 2 + voie - 1) % NB_MAX_VOIE) + 1;
 }
 
 // ------------------------------------------------------------------------------------
@@ -715,7 +720,7 @@ void modeCalibration() {
     lcd.print("Voie "); 
     lcd.print(voie);
     lcd.print(" Offset:");
-    lcd.print(tabVoie[voie]);
+    lcd.print(configPT.tabVoie[voie]);
 
     lcd.setCursor(0, 2);
     lcd.print("Offset:U=+  D=-");
