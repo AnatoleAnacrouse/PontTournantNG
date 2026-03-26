@@ -4,20 +4,20 @@
 #define VERSION   "V0.3"
 // Auteur  : M. EPARDEAU et F. FRANKE
 // Date    : 26 mars 2026
-// Projet  : Contrôle d’un pont tournant motorisé pour maquette ferroviaire
+// Projet  : Contrôle d’un pont tournant motorisé pour maquette ferroviaire :
 //           - Permet de déplacer une locomotive entre une voie d’entrée et une voie 
-//           du dépôt, avec ou sans retournement, via un pont tournant motorisé.
+//             du dépôt, avec ou sans retournement, via un pont tournant motorisé.
 //           - Une fonction de "homing" permet de rechercher la position de la voie
-//           de garage.
+//             de garage.
 //           - Un diagnostique est lancé au démarrage afin de présenter la position 
-//           du moteur, la voie courante et l'état capteur Hall
+//             du moteur, la voie courante et l'état capteur Hall
 //           - Le mode MAINTENANCE permet de déplacer manuellement le pont par 
-//           pas de 1 ou 10.
+//             pas de 1 ou 10.
 //           - Un mode CALIBRATION permet d'ajuster précisément la position de 
-//            chaque voie et de sauvegarder en EEPROM la configuration.
-//           - Les position des voies ainsi que la position courante du pont sont 
-//           sauvegardées en EEPROM. Un magic byte (0xA5) permet de vérifier 
-//           l'intégrité des données et de les réinitialiser si elles sont corrompues.
+//             chaque voie et de sauvegarder en EEPROM la configuration.
+//           - Les positions des voies ainsi que la position courante du pont sont 
+//             sauvegardées en EEPROM. Un magic byte (0xA5) permet de vérifier 
+//             l'intégrité des données et de les réinitialiser si elles sont corrompues.
 // ------------------------------------------------------------------------------------
 // CONFIGURATION
 // - Arduino ou compatible
@@ -132,7 +132,6 @@ const int tabVoie[NB_MAX_VOIE + 1] = {
 
 const byte voieEntree = 0;
 const int stepsPerRevolution = 400;
-//int voieCourante = voieEntree;
 
 // ------------------------------------------------------------------------------------
 // ADRESSES EEPROM
@@ -168,7 +167,7 @@ enum TypeManoeuvre {
 };
 
 // ------------------------------------------------------------------------------------
-// OUTILS
+// ALERTE SONORE
 // ------------------------------------------------------------------------------------
 void beep(bool error = false) {
   if (error) {
@@ -184,35 +183,13 @@ void beep(bool error = false) {
 }
 
 // ------------------------------------------------------------------------------------
-// 
+// FONCTIONS DE GESTION DE L'AFFICHEUR LCD
 // ------------------------------------------------------------------------------------
 void effacerLigne(const byte line) {
   lcd.setCursor(0, line);
   lcd.print("                    ");
 }
 
-// ------------------------------------------------------------------------------------
-// 
-// ------------------------------------------------------------------------------------
-void afficherLigne(String msg, byte ligne = 1) {
-  effacerLigne(ligne);
-  lcd.setCursor(0, ligne);
-  lcd.print(msg);
-}
-
-// ------------------------------------------------------------------------------------
-// 
-// ------------------------------------------------------------------------------------
-void afficherMessage(String msg, byte ligne = 1, bool erreur = false, int duree = TIMEOUT_MSG) {
-  effacerLigne(ligne);
-  lcd.setCursor(0, ligne);
-  lcd.print(msg);
-  delay(duree);
-  beep(erreur);
-}
-
-// ------------------------------------------------------------------------------------
-// 
 // ------------------------------------------------------------------------------------
 void afficherTitre(String titre) {
 
@@ -224,7 +201,9 @@ void afficherTitre(String titre) {
 
   // Construire la ligne avec espaces à gauche + titre + espaces à droite
   String ligne = "";
-  for (int i = 0; i < espacesGauche; i++) ligne += " ";
+  for (int i = 0; i < espacesGauche; i++) { 
+    ligne += " "; 
+  }
   ligne += titre;
   // Compléter avec espaces à droite pour remplir la ligne
   while (ligne.length() < (NB_CHAR)) ligne += " ";
@@ -235,17 +214,34 @@ void afficherTitre(String titre) {
 }
 
 // ------------------------------------------------------------------------------------
+void afficherLigne(String msg, byte ligne = 1) {
+  effacerLigne(ligne);
+  lcd.setCursor(0, ligne);
+  lcd.print(msg);
+}
+
+// ------------------------------------------------------------------------------------
+void afficherMessage(String msg, byte ligne = 1, bool erreur = false, int duree = TIMEOUT_MSG) {
+  effacerLigne(ligne);
+  lcd.setCursor(0, ligne);
+  lcd.print(msg);
+  delay(duree);
+  beep(erreur);
+}
+
+// ------------------------------------------------------------------------------------
 // SAUVEGARDE DE LA VOIE COURANTE EN EEPROM
 // ATTENTION : l'EEPROM est limitée à 100 0000 écritures. On ne sauvegarde la voie
-//               courante que si la valeur a changée.
+//             courante que si la valeur a changée.
 // ------------------------------------------------------------------------------------
 void sauvegarderVoieCourante() {
+
   int voieEE;
 
-  //EEPROM.get(offsetof(ConfigurationPontTournant, configPT.voieCourante), voieEE);
+  // Lire la voie courante en EEPROM
   EEPROM.get(EEPROM_ADDR_VOIE_COURANTE, voieEE);
 
-  // On compare courante à la voie en EEPROM
+  // Si la voie courante est différente de la voie en EEPROM
   if (configPT.voieCourante != voieEE) {
     // On ne sauvegarde que s'il y a une différence
     EEPROM.put(EEPROM_ADDR_VOIE_COURANTE, configPT.voieCourante);                                                      
@@ -269,20 +265,23 @@ void sauverConfigurationPontTournant() {
 // ------------------------------------------------------------------------------------
 void chargerEEPROM() {
 
+  // Lire la configuration en EEPROM
   EEPROM.get(EEPROM_ADDR_VOIES, configPT);
 
+  // Si la configuration n'est pas présente ou est incorrecte
   if (configPT.magic != EEPROM_MAGIC_VALUE) {
     afficherTitre("Init EEPROM...");
-    // Initialisation par défaut si vierge                                                      
+    // Initialiser la configuration dans l'EEPROM
     sauverConfigurationPontTournant();
     // Afficher un message de confirmation sur l'écran LCD
     afficherMessage("Valeurs defaut OK", 3, false, TIMEOUT_MSG);
     return; 
   }
   
+  // Vérifier la configuration en EEPROM
   afficherTitre("Verif EEPROM...");
-  // Si les données de la configuration sont en EEPROM
-  // il faut vérifier que ces données sont dans la plage autorisée [0, stepsPerRevolution]
+
+  // Vérifier que les données des voies sont dans la plage autorisée
   bool valide = true;
   for (int i = 0; i <= NB_MAX_VOIE; i++) {
     if ((configPT.tabVoie[i] < 0) || (configPT.tabVoie[i] > stepsPerRevolution)) {
@@ -290,6 +289,7 @@ void chargerEEPROM() {
       break;
     }
   }
+
   // Vérifier que la voie courante est valide
   if (valide) { 
     if ((configPT.voieCourante  < 0) || (configPT.voieCourante > stepsPerRevolution)) {
@@ -308,22 +308,25 @@ void chargerEEPROM() {
 }
 
 // ------------------------------------------------------------------------------------
-// BARRE DE PROGRESSION LCD
+// GESTION DE LA BARRE DE PROGRESSION SUR L'AFFICHEUR LCD
 // ------------------------------------------------------------------------------------
 void afficherProgression(float progress) {
 
-  // Clamp entre 0.0 et 1.0
+  // Ecréter entre 0.0 et 1.0
   if (progress < 0.0) progress = 0.0;
   if (progress > 1.0) progress = 1.0;
 
-  int total = 20;
+  // Calculer le nombre de blocks à afficher
+  int total = NB_CHAR;
   int blocs = (int)(progress * total);
 
+  // Afficher les blocks et effacer le reste de la ligne
   lcd.setCursor(0, 2);
   for (int i = 0; i < total; i++) {
     lcd.print(i < blocs ? char(255) : ' ');
   }
 
+  // Afficher le % de progression
   lcd.setCursor(0, 3);
   lcd.print((int)(progress * 100));
   lcd.print("%   ");
@@ -339,16 +342,17 @@ void diagnostic() {
 
   afficherTitre("== DIAGNOSTIC == ");
 
+ // Afficher les infos de diagnostic
  String message = "Hall:" + String((digitalRead(hallPin) == LOW ? "ACTIF" : "Libre"))
                 + " Ver:" + String(VERSION);
   afficherLigne(message, 1);
   message = "Pos:" + String(pontTournant.currentPosition())
           + " Voie:"
           + (configPT.voieCourante == 0 ? "garage" : String(configPT.voieCourante));
-
   afficherLigne(message, 2);
   afficherLigne("V ou E: Quitter", 3);
 
+  // Attendre la réponse de l'opérateur
   do {
     touche = keypad.getKey();
     entreeValide = ((touche == 'V') || (touche == 'E'));
@@ -356,16 +360,17 @@ void diagnostic() {
 }
 
 // ------------------------------------------------------------------------------------
-// HOMING AVEC CAPTEUR HALL
+// HOMING
 // ------------------------------------------------------------------------------------
 void homing() {
 
   afficherLigne("Recherche origine...", 2);
-  // Vitesse et accélérations réduites
+
+  // Réduire vitesse et accélération
   pontTournant.setMaxSpeed(SPEED_HOMING);
   pontTournant.setAcceleration(ACCEL_HOMING);
 
-  // Planifier 3 révolutions du moteur pour garantir que le capteur est bien trouvé
+  // Lancer 3 révolutions du moteur pour garantir que le capteur est bien trouvé
   pontTournant.moveTo(pontTournant.currentPosition() + 3 * stepsPerRevolution);
 
   // Armer un watchdog pour éviter une boucle infinie
@@ -386,17 +391,19 @@ void homing() {
     // Définir la position de la voie d'entrée
     pontTournant.setCurrentPosition(0);
     configPT.voieCourante = voieEntree;
+    // Et sauvegarder la configuration en EEPROM
     sauvegarderVoieCourante();
     // Informer l'opérateur du succès 
-    afficherLigne("Origine OK", 3);
+    afficherMessage("Origine OK", 3, false, TIMEOUT_MSG);
+    //afficherLigne("Origine OK", 3);
   }
-  else {
-    // Informer l'opérateur d'l'echec 
-    afficherLigne("ECHEC: origine NOK ", 3);
+  else { // Informer l'opérateur de l'echec 
+    afficherMessage("Origine OK", 3, true, TIMEOUT_ERREUR);
+    //afficherLigne("ECHEC: origine NOK ", 3);
   }
-
   delay(2*TIMEOUT_MSG);
-  // Vitesse et accélérations réduites
+
+  // Restituer vitesse et accélération
   pontTournant.setMaxSpeed(SPEED_NORMAL);
   pontTournant.setAcceleration(ACCEL_NORMAL);
 }
@@ -406,17 +413,18 @@ void homing() {
 // ------------------------------------------------------------------------------------
 void proposerHoming() {
 
+  // Afficher le menu de homing
   afficherTitre("== HOMING == ");
   afficherLigne("V: Oui E: Non", 3);
-  //lcd.print("Derniere voie: ");
-  //lcd.print(configPT.voieCourante);
 
+  // Attendre la réponse de l'opérateur
   char touche = '\0';
   while (touche != 'V' && touche != 'E') {
     touche = keypad.getKey();
   }
 
-  if (touche == 'V') homing();
+  // Lancer le homing
+  if (touche == 'V') { homing(); }
 }
 
 // ------------------------------------------------------------------------------------
@@ -430,20 +438,21 @@ int voieOpposee(int voie) {
 
 // ------------------------------------------------------------------------------------
 // NORMALISATION POSITION MOTEUR
-// La librairie AccelStepper calcul un nombre de pas absolue
-// Si par exemple je fais deux tours d'un moteur 40 pas
-// la position courante du moteur sera égale à 80
-// Le calcul du modulo parmet de ramener la position
-// dans l'intervalle [10..stepsPerRevolution]
+// La librairie AccelStepper calcul un nombre de pas absolue positif ou négatif
+// selon le sens de rotation. Par exemple, la position courante du moteur sera égale 
+// à 800 // après deux révolutions d'un moteur à 400 pas par révolution. 
 // ------------------------------------------------------------------------------------
 long normaliserPosition() {
 
+  // Calculer la position dans l'intervalle [0..stepsPerRevolution]
   long position = pontTournant.currentPosition() % stepsPerRevolution;
 
+  // Si la position est négative calculer la position positive équivalente
   if (position < 0) {
     position += stepsPerRevolution;
   }
 
+  // Reconnfigurer le moteur
   pontTournant.setCurrentPosition(position);
   return position;
 }
@@ -482,7 +491,7 @@ void deplacerPontTournant(long cible) {
   long depart = pontTournant.currentPosition();
   long distanceTotale = abs(cible - depart);
 
-  // Rien à faire si le pont est déjà en position
+  // Ne rien faire si le pont est déjà en position
   if (distanceTotale == 0) {
     afficherProgression(1.0);
     return;
@@ -495,7 +504,7 @@ void deplacerPontTournant(long cible) {
     long distanceParcourue = abs(pontTournant.currentPosition() - depart);
     float progress = (float)distanceParcourue / (float)distanceTotale;
     afficherProgression(progress);
-  }
+  } 
   afficherProgression(1.0);
 }
 
@@ -539,40 +548,46 @@ int saisirTypeManoeuvre() {
   const char* manoeuvres[] = {
     "Entree", "Sortie", "Maintenance", "Calibration" 
   };
+
   const int nbManoeuvres = 4;
   char touche = '\0';
   bool entreeValide = false;
   byte selection = 0;
 
   lcd.clear();
-  int selectionPrecedente = -1;  // forcer le premier affichage
+  // Forcer le premier affichage
+  int selectionPrecedente = -1;
 
   while (!JESUS_CHRIST) {
 
+    // Afficher tous les items du menu
     if (selection != selectionPrecedente) {
       for (int i = 0; i < nbManoeuvres; i++) {
 
-        // Construire une ligne fixe de 20 caractères (pas de débordement)
-        char ligne[21];
-        memset(ligne, ' ', 20);
+        // Construire une ligne fixe de 20 caractères
+        char ligne[21]; 
+        memset(ligne, ' ', 20); 
         ligne[20] = '\0';
 
-        // Indicateur sélection sur les 2 premières colonnes
+        // Si la ligne est selectionnée alors afficher le curseur
         ligne[0] = (i == selection) ? '>' : ' ';
         ligne[1] = ' ';
-
-        // Label à partir de la colonne 2, max 18 chars
+        
+        // Ecrire le Label de l'item depuis la colonne 2, max 18 chars
         const char* label = manoeuvres[i];
         int len = strlen(label);
         if (len > 18) len = 18;
         memcpy(&ligne[2], label, len);
-//
+        
+        // Afficher la ligne sur l'écran LCD
         lcd.setCursor(0, i);
         lcd.print(ligne);
       }
+      // Mémoriser la ligne selectionnée
       selectionPrecedente = selection;
     }
 
+    // Attendre la réponse de l'opérateur
     do {
       touche = keypad.getKey();
       entreeValide = ((touche == 'U') ||
@@ -581,12 +596,13 @@ int saisirTypeManoeuvre() {
                       (touche == 'E'));
     } while (!entreeValide);
 
+    // Traiter le choix de l'opérateur
     if (touche == 'U' && selection > 0) selection--;
     if (touche == 'D' && selection < nbManoeuvres - 1) selection++;
     if (touche == 'V') return selection;
     if (touche == 'E') return ABANDON;
 
-    delay(100);
+    //delay(100);
   }
 }
 
@@ -598,6 +614,7 @@ int saisirNumeroVoie() {
   char touche = '\0';
   String saisie = "";
 
+  // Afficher le message de saisie de la voie
   effacerLigne(2);
   effacerLigne(3);
   afficherMessage("Voie (1-" + String (NB_MAX_VOIE) + "):",1);
@@ -605,12 +622,12 @@ int saisirNumeroVoie() {
 
   while (!JESUS_CHRIST) {
 
-    // Attendre la saisie
+    // Attendre la saisie de l'opérateur
     touche = keypad.getKey();
     if (!touche) continue;
 
     // Si c'est un chiffre de 0 à 9
-    if ((touche >= '0' && touche <= '9') && saisie.length() < 2) {
+    if ((touche >= '0' && touche <= '9') && (saisie.length() < 2)) {
       saisie += touche;
       lcd.setCursor(2, 2);
       lcd.print("   ");
@@ -629,14 +646,14 @@ int saisirNumeroVoie() {
 
     // Sinon si c'est une validation
     else if (touche == 'V') {
-      // Si rien n'est saisie on boucle
+      // Boucler si rien n'est saisie
       if (saisie.length() == 0) { 
         beep(); 
         continue; 
       }
 
-      // On boucle si le numéro de voie n'est pas conforme
-      // TRAITER LA VOIE DE GARAGE = 0
+      // Si le numéro de voie n'est pas conforme alors boucler
+      // ===> TRAITER LA VOIE DE GARAGE = 0
       int voie = saisie.toInt();
       if (voie < 1 || voie > NB_MAX_VOIE) {
         String message = "ERREUR" + String(NB_MAX_VOIE);
@@ -645,10 +662,10 @@ int saisirNumeroVoie() {
         saisie = "";
         continue;
       }
-      // Sinon on retourne la voie
+      // Sinon retourner la voie
       return voie;
     }
-    // Sinon on abandonne
+    // Sinon abandonner
     else if (touche == 'E') return ABANDON;
   }
 }
@@ -659,31 +676,33 @@ int saisirNumeroVoie() {
 int demanderRetournement() {
 
   const char* ouiNon[] = {"Non", "Oui"};
+
   char touche = '\0';
   bool entreeValide = false;
   byte selection = 0;
 
+  // Afficher le message de saisie du retournement
   effacerLigne(2);
   effacerLigne(3);
   afficherMessage("Retournement:", 1);
 
   while (!JESUS_CHRIST) {
 
-    // Proposer un choix
+    // Afficher le choix Non ou Oui
     for (int i = 0; i < 2; i++) {
       lcd.setCursor(0, i + 2);
       lcd.print(i == selection ? "> " : "  ");
       lcd.print(ouiNon[i]);
     }
 
-    // Gérer la saisie
+    // Attendre la réponse de l'opérateur
     do {
       touche = keypad.getKey();
       entreeValide = ((touche == 'U') || (touche == 'D') ||
                       (touche == 'V') || (touche == 'E'));
     } while (!entreeValide);
 
-    // Traiter le choix
+    // Traiter le choix de l'opérateur
     if (touche == 'U' && selection > 0) selection--;
     if (touche == 'D' && selection < 1) selection++;
     if (touche == 'V') return selection;
@@ -706,11 +725,10 @@ void modeMaintenance() {
     message = "Offset:" + String(pontTournant.currentPosition())
             + ((digitalRead(hallPin) == LOW) ? " Hall ACTIF" : " Hall libre");
     afficherLigne(message, 1);
-
     afficherLigne("U/D: +/-10 R/L:+/-1" , 2);
     afficherLigne("E: Quitter", 3);      
 
-    // Gérer la saisie
+    // Attendre la réponse de l'opérateur
     do {
       touche = keypad.getKey();
       entreeValide = ((touche == 'U') ||
@@ -720,13 +738,14 @@ void modeMaintenance() {
                       (touche == 'E'));
     } while (!entreeValide);
 
-    // Traiter le choix
+    // Traiter le choix de l'opérateur
+    if (touche == 'E') return;
     if (touche == 'U') pontTournant.move(10);
     if (touche == 'D') pontTournant.move(-10);
     if (touche == 'R') pontTournant.move(1);
     if (touche == 'L') pontTournant.move(-1);
-    if (touche == 'E') return;
 
+    // Déplacer le pont
     pontTournant.runToPosition();
     //delay(100);
   }
@@ -740,18 +759,18 @@ void modeCalibration() {
   char touche = '\0';
   bool entreeValide = false;
   byte voie = voieEntree;
-  String saisie = "";
+  String message = "";
 
   while (!JESUS_CHRIST) {
 
     // Affichier le menu
-    saisie = "Voie:" + String(voie) + " Offset:" + String(configPT.tabVoie[voie]);
-    afficherLigne(saisie, 1);
+    message = "Voie:" + String(voie) + " Offset:" + String(configPT.tabVoie[voie]);
+    afficherLigne(message, 1);
     afficherLigne("Voie: R/L Offset:U/D", 2);
     afficherLigne("V:Valider E:Quitter", 3);
 
 
-    // Gérer la saisie
+    // Attendre la réponse de l'opérateur
     do {
       touche = keypad.getKey();
       entreeValide = ((touche == 'U') ||
@@ -762,12 +781,13 @@ void modeCalibration() {
                       (touche == 'E'));
     } while (!entreeValide);
 
-    // Traiter le choix
+    // Traiter le choix de l'opérateur
+    if (touche == 'E') return;
     if (touche == 'U') configPT.tabVoie[voie]++;
     if (touche == 'D') configPT.tabVoie[voie]--;
     if (touche == 'R' && voie < NB_MAX_VOIE) voie++;
     if (touche == 'L' && voie > 1)           voie--;
-    if (touche == 'E') return;
+    // Procéder à la calibration
     if (touche == 'V') {
       sauverConfigurationPontTournant();
       afficherMessage("Sauvegarde OK", 3, false, TIMEOUT_SAUVEGARDE);
@@ -806,8 +826,11 @@ void loop() {
 
   int retournementChoisi;
   int voieSelectionnee;
+
+  // Interroger l'opéraeur
   int manoeuvre = saisirTypeManoeuvre();
 
+  // Traiter le choix de l'opérateur
   switch (manoeuvre) {
 
     case ABANDON:
@@ -851,19 +874,19 @@ void loop() {
       modeMaintenance();
       return;
 
-    // Ajuster précisément la position de chaque voie
-    // et mettre à jour l'EEPROM
+    // Ajuster la position de chaque voie et mettre à jour l'EEPROM
     case MANOEUVRE_CALIBRATION:
       afficherTitre("== CALIBRATION ==");
       modeCalibration();
       return;
 
+    // EXCEPTION "Cas non prévu"
     default:
-      // Cas non prévu 
       lcd.clear();
       afficherMessage("ERREUR GRAVE", 3, true, TIMEOUT_ERREUR);
       return;
   }
 
+  // Finaliser la manoeuvre
   afficherMessage("Manoeuvre OK", 3, false, TIMEOUT_MSG);
 }
