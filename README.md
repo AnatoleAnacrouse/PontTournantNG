@@ -60,7 +60,7 @@ Le contrôle s’effectue avec un **Arduino**, un moteur pas à pas, un capteur 
 
 ---
 
-##🚦Limitation Actuelle et Extensions Futures
+## 🚦 Limitation Actuelle et Extensions Futures
 
 ### Limitation : 40 voies maximum
 
