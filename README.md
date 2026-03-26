@@ -10,7 +10,7 @@ Le contrôle s’effectue avec un **Arduino**, un moteur pas à pas, un capteur 
 
 ### Caractéristiques principales
 - 🎯 **40 voies** configurables et calibrables
-- ⚙️ **Diagnostic au démarrage**
+- 📐 **Diagnostic au démarrage**
 - 🏠 **Fonction de homing** pour retrouver la position de référence
 - 🔄 **Optimisation des trajets** (chemin le plus court)
 - 💾 **Sauvegarde en EEPROM** des positions et de la voie courante en EEPROM avec contrôle d’intégrité
