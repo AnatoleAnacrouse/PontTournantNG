@@ -16,7 +16,7 @@ Le contrôle s’effectue avec un **Arduino**, un moteur pas à pas, un capteur 
 - 💾 **Sauvegarde en EEPROM** des positions et de la voie courante en EEPROM avec contrôle d’intégrité
 - 🎮 **Interface LCD 20x4** avec clavier 4x4 intégré
 - 🔧 **Mode maintenance** pour le déplacement manuel du pont 
-- ⚙️ **Mode calibration** pour ajuster et sauvegarder précisément les positions des voies
+- 🗜️ **Mode calibration** pour ajuster et sauvegarder précisément les positions des voies
 
 ---
 
