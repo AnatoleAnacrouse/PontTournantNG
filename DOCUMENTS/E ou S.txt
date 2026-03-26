@@ -1,0 +1,882 @@
+
+
+
+
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <Keypad.h>
+
+// Configuration LCD I2C 20x4 (adresse 0x27, à adapter si besoin)
+LiquidCrystal_I2C lcd(0x27, 20, 4);
+
+// Configuration keypad 5x4
+const byte ROWS = 5;
+const byte COLS = 4;
+char keys[ROWS][COLS] = {
+  {'1','2','3','A'},   // A = flèche haut
+  {'4','5','6','B'},   // B = flèche bas
+  {'7','8','9','C'},   // C = Échap
+  {'*','0','#','D'},   // D = ENT
+  {'E','F','G','H'}    // touches inutilisées ou autres
+};
+
+byte rowPins[ROWS] = {9, 8, 7, 6, 10}; // connecter aux lignes du keypad
+byte colPins[COLS] = {A3, A2, A1, A0}; // connecter aux colonnes du keypad
+
+Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS );
+
+// Pin du buzzer
+const int buzzerPin = 13; // adapter selon votre montage
+
+// Liste des types de manœuvres
+const char* manoeuvres[] = {
+  "Entree",
+  "Sortie"
+};
+const int nbManoeuvres = sizeof(manoeuvres) / sizeof(manoeuvres[0]);
+
+// Options Oui/Non pour retournement
+const char* ouiNon[] = {"Non", "Oui"};
+const int nbOuiNon = 2;
+
+// Fonction pour émettre un bip court sur le buzzer
+void beep() {
+  tone(buzzerPin, 1000, 150); // 1000 Hz pendant 150 ms
+  delay(200);
+  noTone(buzzerPin);
+}
+
+// Fonction pour afficher un menu simple avec curseur
+void afficherMenu(const char* titre, const char* options[], int nbOptions, int selection) {
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print(titre);
+  for (int i = 0; i < nbOptions; i++) {
+    lcd.setCursor(0, i+1);
+    if (i == selection) {
+      lcd.print("> ");
+    } else {
+      lcd.print("  ");
+    }
+    lcd.print(options[i]);
+  }
+}
+
+// Fonction indépendante pour saisir le type de manœuvre
+// Retourne :
+//   0 pour "Entree"
+//   1 pour "Sortie"
+//  -1 si annulation (Échap)
+int saisirTypeManoeuvre() {
+  int selectedIndex = 0;
+  afficherMenu("Type de manoeuvre:", manoeuvres, nbManoeuvres, selectedIndex);
+
+  while (true) {
+    char key = keypad.getKey();
+    if (key) {
+      switch (key) {
+        case 'A': // Flèche haut
+          if (selectedIndex > 0) selectedIndex--;
+          afficherMenu("Type de manoeuvre:", manoeuvres, nbManoeuvres, selectedIndex);
+          break;
+        case 'B': // Flèche bas
+          if (selectedIndex < nbManoeuvres - 1) selectedIndex++;
+          afficherMenu("Type de manoeuvre:", manoeuvres, nbManoeuvres, selectedIndex);
+          break;
+        case 'C': // Échap
+          lcd.clear();
+          lcd.setCursor(0,1);
+          lcd.print("Saisie annulee");
+          delay(1500);
+          return -1; // annulation
+        case 'D': // ENT
+          lcd.clear();
+          lcd.setCursor(0,1);
+          lcd.print("Valide: ");
+          lcd.print(manoeuvres[selectedIndex]);
+          delay(1500);
+          return selectedIndex; // retour de la sélection
+      }
+    }
+  }
+}
+
+// Fonction indépendante pour saisir un numéro de voie (1-40) via touches numériques
+// Retourne le numéro validé ou -1 si annulation
+int saisirNumeroVoie() {
+  String input = "";
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("N° Voie (1-40):");
+  lcd.setCursor(0,1);
+  lcd.print("> ");
+
+  while (true) {
+    char key = keypad.getKey();
+    if (key) {
+      if (key >= '0' && key <= '9') {
+        if (input.length() < 2) { // max 2 chiffres (40 max)
+          input += key;
+          lcd.setCursor(2,1);
+          lcd.print("  ");
+          lcd.setCursor(2,1);
+          lcd.print(input);
+        }
+      } else if (key == '#') {
+        if (input.length() > 0) {
+          input.remove(input.length() - 1);
+          lcd.setCursor(2,1);
+          lcd.print("  ");
+          lcd.setCursor(2,1);
+          lcd.print(input);
+        }
+      } else if (key == 'C') { // Échap
+        lcd.clear();
+        lcd.setCursor(0,1);
+        lcd.print("Saisie annulee");
+        delay(1500);
+        return -1;
+      } else if (key == 'D') { // ENT
+        if (input.length() == 0) {
+          beep(); // Pas de saisie, bip d'erreur
+          continue;
+        }
+        int numero = input.toInt();
+        if (numero < 1 || numero > 40) {
+          lcd.setCursor(0,2);
+          lcd.print("Erreur: 1 a 40");
+          beep(); // Bip erreur
+          delay(1500);
+          lcd.setCursor(0,2);
+          lcd.print("               ");
+          lcd.setCursor(2,1);
+          lcd.print(input);
+        } else {
+          lcd.clear();
+          lcd.setCursor(0,1);
+          lcd.print("Valide: ");
+          lcd.print(numero);
+          delay(1500);
+          return numero;
+        }
+      } else {
+        // Touche non valide pour ce contexte
+        beep();
+      }
+    }
+  }
+}
+
+// Fonction indépendante pour demander si la manœuvre nécessite un retournement
+// Retourne 0 pour Non, 1 pour Oui, -1 si annulation
+int demanderRetournement() {
+  int selection = 0;
+  afficherMenu("Retournement ?", ouiNon, nbOuiNon, selection);
+
+  while (true) {
+    char key = keypad.getKey();
+    if (key) {
+      switch (key) {
+        case 'A': // Flèche haut
+          if (selection > 0) selection--;
+          afficherMenu("Retournement ?", ouiNon, nbOuiNon, selection);
+          break;
+        case 'B': // Flèche bas
+          if (selection < nbOuiNon - 1) selection++;
+          afficherMenu("Retournement ?", ouiNon, nbOuiNon, selection);
+          break;
+        case 'C': // Échap
+          lcd.clear();
+          lcd.setCursor(0,1);
+          lcd.print("Annule");
+          delay(1500);
+          return -1; // annulation
+        case 'D': // ENT
+          lcd.clear();
+          lcd.setCursor(0,1);
+          lcd.print("Valide: ");
+          lcd.print(ouiNon[selection]);
+          delay(1500);
+          return selection; // 0 = Non, 1 = Oui
+      }
+    }
+  }
+}
+
+void setup() {
+  lcd.init();          // initialisation de l'écran I2C
+  lcd.backlight();     // allumer le rétroéclairage
+  pinMode(buzzerPin, OUTPUT);
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Demarrage...");
+  delay(1500);
+  lcd.clear();
+}
+
+void loop() {
+  // 1. Saisie du type de manœuvre
+  int typeManoeuvre = saisirTypeManoeuvre();
+  if (typeManoeuvre == -1) {
+    lcd.clear();
+    lcd.setCursor(0,1);
+    lcd.print("Saisie annulee");
+    delay(2000);
+    while(1);
+  }
+
+  // 2. Saisie du numéro de voie
+  int numeroVoie = saisirNumeroVoie();
+  if (numeroVoie == -1) {
+    lcd.clear();
+    lcd.setCursor(0,1);
+    lcd.print("Saisie annulee");
+    delay(2000);
+    while(1);
+  }
+
+  // 3. Saisie de la nécessité d'un retournement
+  int retournement = demanderRetournement();
+  if (retournement == -1) {
+    lcd.clear();
+    lcd.setCursor(0,1);
+    lcd.print("Saisie annulee");
+    delay(2000);
+    while(1);
+  }
+
+  // Affichage final
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Manoeuvre: ");
+  lcd.print(typeManoeuvre == 0 ? "Entree" : "Sortie");
+  lcd.setCursor(0,1);
+  lcd.print("Voie: ");
+  lcd.print(numeroVoie);
+  lcd.setCursor(0,2);
+  lcd.print("Retournement: ");
+  lcd.print(retournement == 1 ? "Oui" : "Non");
+  delay(4000);
+
+  while(1);
+}
+
+
+Ce code utilise la bibliothèque LiquidCrystal_I2C pour piloter un écran LCD 20x4 via I2C, avec un keypad 5x4 pour la saisie.Le buzzer sur la pin 13 émet un bip à chaque saisie invalide.Les trois étapes de saisie sont :  
+
+Type de manœuvre (Entrée/Sortie)  
+Numéro de voie (1 à 40) via touches numériques avec correction possible  
+Demande de retournement (Oui/Non)
+
+N’hésitez pas à me demander si vous souhaitez d’autres fonctionnalités ou explications.
+
+
+
+
+
+
+
+=====================================================================
+
+
+
+Pour ajouter une sonnerie sur un buzzer lorsque l'utilisateur entre une touche non valide (par exemple un caractère non numérique lors de la saisie du numéro de voie), il faut :
+
+Connecter un buzzer à une pin Arduino (par exemple la pin 13).
+Ajouter une fonction simple pour émettre un bip court.
+Appeler cette fonction à chaque fois qu'une touche invalide est détectée dans la fonction saisirNumeroVoie().
+
+
+Exemple d'ajout dans le code complet
+Voici les modifications à faire :
+
+1. Déclaration du buzzer
+En haut du code, ajoutez la déclaration de la pin buzzer et configurez-la en sortie dans setup() :
+const int buzzerPin = 13; // Pin du buzzer (adapter selon votre montage)
+
+void setup() {
+  lcd.begin(20,4);
+  pinMode(buzzerPin, OUTPUT);
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Demarrage...");
+  delay(1500);
+  lcd.clear();
+}
+
+
+2. Fonction pour émettre un bip court
+void beep() {
+  tone(buzzerPin, 1000, 150); // 1000 Hz pendant 150 ms
+  delay(200);                 // Pause pour que le son soit audible
+  noTone(buzzerPin);
+}
+
+
+3. Modification dans saisirNumeroVoie() pour gérer les touches invalides
+Dans la boucle de lecture des touches, ajoutez un else pour les touches non valides, avec un appel à beep() :
+int saisirNumeroVoie() {
+  String input = "";
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("N° Voie (1-40):");
+  lcd.setCursor(0,1);
+  lcd.print("> ");
+
+  while (true) {
+    char key = keypad.getKey();
+    if (key) {
+      if (key >= '0' && key <= '9') {
+        if (input.length() < 2) {
+          input += key;
+          lcd.setCursor(2,1);
+          lcd.print("  ");
+          lcd.setCursor(2,1);
+          lcd.print(input);
+        }
+      } else if (key == '#') {
+        if (input.length() > 0) {
+          input.remove(input.length() - 1);
+          lcd.setCursor(2,1);
+          lcd.print("  ");
+          lcd.setCursor(2,1);
+          lcd.print(input);
+        }
+      } else if (key == 'C') {
+        lcd.clear();
+        lcd.setCursor(0,1);
+        lcd.print("Saisie annulee");
+        delay(1500);
+        return -1;
+      } else if (key == 'D') {
+        if (input.length() == 0) {
+          beep(); // Pas de saisie, bip d'erreur
+          continue;
+        }
+        int numero = input.toInt();
+        if (numero < 1 || numero > 40) {
+          lcd.setCursor(0,2);
+          lcd.print("Erreur: 1 a 40");
+          beep(); // Bip erreur
+          delay(1500);
+          lcd.setCursor(0,2);
+          lcd.print("               ");
+          lcd.setCursor(2,1);
+          lcd.print(input);
+        } else {
+          lcd.clear();
+          lcd.setCursor(0,1);
+          lcd.print("Valide: ");
+          lcd.print(numero);
+          delay(1500);
+          return numero;
+        }
+      } else {
+        // Touche non valide pour ce contexte
+        beep();
+      }
+    }
+  }
+}
+
+
+Résumé
+
+Le buzzer est connecté à la pin 13 (modifiable).
+La fonction beep() produit un son court.
+Un bip est joué à chaque fois qu’une touche invalide est pressée dans la saisie du numéro de voie, ou si la validation est faite sans saisie.
+Le reste du code reste inchangé.
+
+
+Si vous souhaitez, je peux vous fournir le code complet mis à jour avec cette fonctionnalité.
+
+
+
+
+
+
+===========================================================
+
+#include <Keypad.h>
+#include <LiquidCrystal.h>
+
+// Configuration LCD 20x4 (adapter les pins selon votre montage)
+LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
+
+// Configuration keypad 5x4
+const byte ROWS = 5;
+const byte COLS = 4;
+char keys[ROWS][COLS] = {
+  {'1','2','3','A'},   // A = flèche haut
+  {'4','5','6','B'},   // B = flèche bas
+  {'7','8','9','C'},   // C = Échap
+  {'*','0','#','D'},   // D = ENT
+  {'E','F','G','H'}    // touches inutilisées ou autres
+};
+
+byte rowPins[ROWS] = {9, 8, 7, 6, 10}; // connecter aux lignes du keypad
+byte colPins[COLS] = {A3, A2, A1, A0}; // connecter aux colonnes du keypad
+
+Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS );
+
+// Liste des types de manœuvres
+const char* manoeuvres[] = {
+  "Entree",
+  "Sortie"
+};
+const int nbManoeuvres = sizeof(manoeuvres) / sizeof(manoeuvres[0]);
+
+// Options Oui/Non pour retournement
+const char* ouiNon[] = {"Non", "Oui"};
+const int nbOuiNon = 2;
+
+// Fonction pour afficher un menu simple avec curseur
+void afficherMenu(const char* titre, const char* options[], int nbOptions, int selection) {
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print(titre);
+  for (int i = 0; i < nbOptions; i++) {
+    lcd.setCursor(0, i+1);
+    if (i == selection) {
+      lcd.print("> ");
+    } else {
+      lcd.print("  ");
+    }
+    lcd.print(options[i]);
+  }
+}
+
+// Fonction indépendante pour saisir le type de manœuvre
+// Retourne :
+//   0 pour "Entree"
+//   1 pour "Sortie"
+//  -1 si annulation (Échap)
+int saisirTypeManoeuvre() {
+  int selectedIndex = 0;
+  afficherMenu("Type de manoeuvre:", manoeuvres, nbManoeuvres, selectedIndex);
+
+  while (true) {
+    char key = keypad.getKey();
+    if (key) {
+      switch (key) {
+        case 'A': // Flèche haut
+          if (selectedIndex > 0) selectedIndex--;
+          afficherMenu("Type de manoeuvre:", manoeuvres, nbManoeuvres, selectedIndex);
+          break;
+        case 'B': // Flèche bas
+          if (selectedIndex < nbManoeuvres - 1) selectedIndex++;
+          afficherMenu("Type de manoeuvre:", manoeuvres, nbManoeuvres, selectedIndex);
+          break;
+        case 'C': // Échap
+          lcd.clear();
+          lcd.setCursor(0,1);
+          lcd.print("Saisie annulee");
+          delay(1500);
+          return -1; // annulation
+        case 'D': // ENT
+          lcd.clear();
+          lcd.setCursor(0,1);
+          lcd.print("Valide: ");
+          lcd.print(manoeuvres[selectedIndex]);
+          delay(1500);
+          return selectedIndex; // retour de la sélection
+      }
+    }
+  }
+}
+
+// Fonction indépendante pour saisir un numéro de voie (1-40) via touches numériques
+// Retourne le numéro validé ou -1 si annulation
+int saisirNumeroVoie() {
+  String input = "";
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("N° Voie (1-40):");
+  lcd.setCursor(0,1);
+  lcd.print("> ");
+
+  while (true) {
+    char key = keypad.getKey();
+    if (key) {
+      // Accepter uniquement chiffres 0-9, ENT (D), Échap (C), et # pour effacer
+      if (key >= '0' && key <= '9') {
+        if (input.length() < 2) { // max 2 chiffres (40 max)
+          input += key;
+          lcd.setCursor(2,1);
+          lcd.print("  "); // effacer ancienne saisie
+          lcd.setCursor(2,1);
+          lcd.print(input);
+        }
+      } else if (key == '#') {
+        // Effacer dernier chiffre
+        if (input.length() > 0) {
+          input.remove(input.length() - 1);
+          lcd.setCursor(2,1);
+          lcd.print("  ");
+          lcd.setCursor(2,1);
+          lcd.print(input);
+        }
+      } else if (key == 'C') { // Échap
+        lcd.clear();
+        lcd.setCursor(0,1);
+        lcd.print("Saisie annulee");
+        delay(1500);
+        return -1;
+      } else if (key == 'D') { // ENT
+        if (input.length() == 0) {
+          // Pas de saisie, ignorer
+          continue;
+        }
+        int numero = input.toInt();
+        if (numero < 1 || numero > 40) {
+          lcd.setCursor(0,2);
+          lcd.print("Erreur: 1 a 40");
+          delay(1500);
+          lcd.setCursor(0,2);
+          lcd.print("               "); // effacer message erreur
+          lcd.setCursor(2,1);
+          lcd.print(input);
+        } else {
+          lcd.clear();
+          lcd.setCursor(0,1);
+          lcd.print("Valide: ");
+          lcd.print(numero);
+          delay(1500);
+          return numero;
+        }
+      }
+    }
+  }
+}
+
+// Fonction indépendante pour demander si la manœuvre nécessite un retournement
+// Retourne 0 pour Non, 1 pour Oui, -1 si annulation
+int demanderRetournement() {
+  int selection = 0;
+  afficherMenu("Retournement ?", ouiNon, nbOuiNon, selection);
+
+  while (true) {
+    char key = keypad.getKey();
+    if (key) {
+      switch (key) {
+        case 'A': // Flèche haut
+          if (selection > 0) selection--;
+          afficherMenu("Retournement ?", ouiNon, nbOuiNon, selection);
+          break;
+        case 'B': // Flèche bas
+          if (selection < nbOuiNon - 1) selection++;
+          afficherMenu("Retournement ?", ouiNon, nbOuiNon, selection);
+          break;
+        case 'C': // Échap
+          lcd.clear();
+          lcd.setCursor(0,1);
+          lcd.print("Annule");
+          delay(1500);
+          return -1; // annulation
+        case 'D': // ENT
+          lcd.clear();
+          lcd.setCursor(0,1);
+          lcd.print("Valide: ");
+          lcd.print(ouiNon[selection]);
+          delay(1500);
+          return selection; // 0 = Non, 1 = Oui
+      }
+    }
+  }
+}
+
+void setup() {
+  lcd.begin(20,4);
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Demarrage...");
+  delay(1500);
+  lcd.clear();
+}
+
+void loop() {
+  // 1. Saisie du type de manœuvre
+  int typeManoeuvre = saisirTypeManoeuvre();
+  if (typeManoeuvre == -1) {
+    lcd.clear();
+    lcd.setCursor(0,1);
+    lcd.print("Saisie annulee");
+    delay(2000);
+    while(1);
+  }
+
+  // 2. Saisie du numéro de voie
+  int numeroVoie = saisirNumeroVoie();
+  if (numeroVoie == -1) {
+    lcd.clear();
+    lcd.setCursor(0,1);
+    lcd.print("Saisie annulee");
+    delay(2000);
+    while(1);
+  }
+
+  // 3. Saisie de la nécessité d'un retournement
+  int retournement = demanderRetournement();
+  if (retournement == -1) {
+    lcd.clear();
+    lcd.setCursor(0,1);
+    lcd.print("Saisie annulee");
+    delay(2000);
+    while(1);
+  }
+
+  // Affichage final
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Manoeuvre: ");
+  lcd.print(typeManoeuvre == 0 ? "Entree" : "Sortie");
+  lcd.setCursor(0,1);
+  lcd.print("Voie: ");
+  lcd.print(numeroVoie);
+  lcd.setCursor(0,2);
+  lcd.print("Retournement: ");
+  lcd.print(retournement == 1 ? "Oui" : "Non");
+  delay(4000);
+
+  while(1);
+}
+
+
+Notes importantes
+
+Adaptez les pins du LCD et du keypad selon votre montage.
+Le mapping des touches est :  
+'A' = flèche haut  
+'B' = flèche bas  
+'C' = Échap (annuler)  
+'D' = ENT (valider)  
+'#' = effacer dernier chiffre dans la saisie numérique
+
+
+La saisie du numéro de voie se fait via les touches numériques, avec correction possible.
+Après validation des trois étapes, le résultat est affiché 4 secondes puis le programme s’arrête.
+
+N’hésitez pas à me demander si vous souhaitez des adaptations ou des explications complémentaires.
+
+
+==========================================================
+
+
+int saisirNumeroVoie() {
+  String input = "";
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("N° Voie (1-40):");
+  lcd.setCursor(0,1);
+  lcd.print("> ");
+
+  while (true) {
+    char key = keypad.getKey();
+    if (key) {
+      // Accepter uniquement chiffres 0-9, ENT (D), Échap (C), et # pour effacer
+      if (key >= '0' && key <= '9') {
+        if (input.length() < 2) { // max 2 chiffres (40 max)
+          input += key;
+          lcd.setCursor(2,1);
+          lcd.print("  "); // effacer ancienne saisie
+          lcd.setCursor(2,1);
+          lcd.print(input);
+        }
+      } else if (key == '#') {
+        // Effacer dernier chiffre
+        if (input.length() > 0) {
+          input.remove(input.length() - 1);
+          lcd.setCursor(2,1);
+          lcd.print("  ");
+          lcd.setCursor(2,1);
+          lcd.print(input);
+        }
+      } else if (key == 'C') { // Échap
+        lcd.clear();
+        lcd.setCursor(0,1);
+        lcd.print("Saisie annulee");
+        delay(1500);
+        return -1;
+      } else if (key == 'D') { // ENT
+        if (input.length() == 0) {
+          // Pas de saisie, ignorer
+          continue;
+        }
+        int numero = input.toInt();
+        if (numero < 1 || numero > 40) {
+          lcd.setCursor(0,2);
+          lcd.print("Erreur: 1 a 40");
+          delay(1500);
+          lcd.setCursor(0,2);
+          lcd.print("               "); // effacer message erreur
+          lcd.setCursor(2,1);
+          lcd.print(input);
+        } else {
+          lcd.clear();
+          lcd.setCursor(0,1);
+          lcd.print("Valide: ");
+          lcd.print(numero);
+          delay(1500);
+          return numero;
+        }
+      }
+    }
+  }
+}
+
+
+
+Explications
+L'utilisateur tape un ou deux chiffres (max 40).
+Touche # efface le dernier chiffre saisi.
+Touche D valide la saisie si elle est dans l’intervalle 1-40.
+Touche C annule la saisie.
+Le LCD affiche la saisie en temps réel et les messages d’erreur.
+Intégration dans la séquence
+Remplacez l’appel à la fonction précédente saisirNumeroBoite() par saisirNumeroVoie() dans votre loop().
+
+==========================================================
+
+// Fonction pour demander si la manœuvre nécessite un retournement
+// Retourne true si Oui, false si Non, ou annule avec Échap (retourne -1)
+int demanderRetournement() {
+  int selection = 0;
+  afficherMenu("Retournement ?", ouiNon, nbOuiNon, selection);
+
+  while (true) {
+    char key = keypad.getKey();
+    if (key) {
+      switch (key) {
+        case 'A': // Flèche haut
+          if (selection > 0) selection--;
+          afficherMenu("Retournement ?", ouiNon, nbOuiNon, selection);
+          break;
+        case 'B': // Flèche bas
+          if (selection < nbOuiNon - 1) selection++;
+          afficherMenu("Retournement ?", ouiNon, nbOuiNon, selection);
+          break;
+        case 'C': // Échap
+          lcd.clear();
+          lcd.setCursor(0,1);
+          lcd.print("Annule");
+          delay(1500);
+          return -1; // annulation
+        case 'D': // ENT
+          lcd.clear();
+          lcd.setCursor(0,1);
+          lcd.print("Valide: ");
+          lcd.print(ouiNon[selection]);
+          delay(1500);
+          return selection; // 0 = Non, 1 = Oui
+      }
+    }
+  }
+}
+
+========================================================
+
+
+
+Voici un code Arduino adapté pour saisir un type de manœuvre parmi deux options : "Entrée" ou "Sortie", avec un écran LCD 20x4 et un keypad 5x4. La navigation se fait avec les touches flèche haut et bas, Échap annule, et ENT valide.
+
+Code Arduino adapté
+#include <Keypad.h>
+#include <LiquidCrystal.h>
+
+// Configuration LCD 20x4 (adapter les pins selon votre montage)
+LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
+
+// Configuration keypad 5x4
+const byte ROWS = 5;
+const byte COLS = 4;
+char keys[ROWS][COLS] = {
+  {'1','2','3','A'},   // A = flèche haut
+  {'4','5','6','B'},   // B = flèche bas
+  {'7','8','9','C'},   // C = Échap
+  {'*','0','#','D'},   // D = ENT
+  {'E','F','G','H'}    // touches inutilisées ou autres
+};
+
+byte rowPins[ROWS] = {9, 8, 7, 6, 10}; // connecter aux lignes du keypad
+byte colPins[COLS] = {A3, A2, A1, A0}; // connecter aux colonnes du keypad
+
+Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS );
+
+// Liste des types de manœuvres
+const char* manoeuvres[] = {
+  "Entree",
+  "Sortie"
+};
+const int nbManoeuvres = sizeof(manoeuvres) / sizeof(manoeuvres[0]);
+
+int selectedIndex = 0;
+bool saisieActive = true;
+
+void afficherMenu() {
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Type de manoeuvre:");
+
+  for (int i = 0; i < nbManoeuvres; i++) {
+    lcd.setCursor(0, i+1);
+    if (i == selectedIndex) {
+      lcd.print("> ");
+    } else {
+      lcd.print("  ");
+    }
+    lcd.print(manoeuvres[i]);
+  }
+}
+
+void setup() {
+  lcd.begin(20,4);
+  afficherMenu();
+}
+
+void loop() {
+  char key = keypad.getKey();
+  if (key) {
+    switch (key) {
+      case 'A': // Flèche haut
+        if (selectedIndex > 0) selectedIndex--;
+        afficherMenu();
+        break;
+      case 'B': // Flèche bas
+        if (selectedIndex < nbManoeuvres - 1) selectedIndex++;
+        afficherMenu();
+        break;
+      case 'C': // Échap
+        lcd.clear();
+        lcd.setCursor(0,1);
+        lcd.print("Saisie annulee");
+        delay(1500);
+        saisieActive = false; // Fin de saisie
+        break;
+      case 'D': // ENT
+        lcd.clear();
+        lcd.setCursor(0,1);
+        lcd.print("Valide: ");
+        lcd.print(manoeuvres[selectedIndex]);
+        delay(2000);
+        saisieActive = false; // Fin de saisie
+        break;
+      default:
+        // Ignorer autres touches
+        break;
+    }
+  }
+
+  if (!saisieActive) {
+    while(1); // Bloquer le programme après fin
+  }
+}
+
+
+Explications
+
+Le menu affiche uniquement "Entrée" et "Sortie".
+La touche 'A' correspond à la flèche haut, 'B' à la flèche bas, 'C' à Échap, 'D' à ENT.
+La sélection est indiquée par un ">" devant l'option.
+Validation ou annulation affiche un message puis bloque la saisie.
+
+Si vous souhaitez intégrer ce code dans un projet plus large ou gérer plusieurs étapes, je peux vous aider à l’adapter.
