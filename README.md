@@ -1,25 +1,26 @@
 # Projet de Pont Tournant Ferroviaire Nouvelle Génération
 
+## Objectifs du projet
+
+Ce projet a pour objectif de contrôler une maquette de **pont tournant ferroviaire** automatisé et motorisé.
+Il permet de déplacer une locomotive entre une voie d’entrée et plusieurs voies de dépôt dans une maquette ferroviaire. 
+Le contrôle s’effectue avec un **Arduino**, un moteur pas à pas, un capteur Hall, un écran LCD I2C et un clavier matriciel 4x4.
+
 ## 📖 Description
-
-### Objectifs du projet
-
-Ce projet permet de gérer un **pont tournant ferroviaire** avec un **Arduino**. Il s'agit d'une solution de contrôle complet et modulaire pour automatiser le positionnement d'un pont tournant destiné à une maquette ferroviaire.
-
-Le pont tournant permet de faire pivoter une voie pour aligner une locomotive avec une voie d'entrée/sortie et les différentes voies de garage. Le système gère automatiquement l'optimisation des trajets, la sauvegarde de l'état en EEPROM, et propose plusieurs modes d'opération.
 
 ### Caractéristiques principales
 - 🎯 **40 voies** configurables et calibrables
+- ⚙️ **Diagnostic au démarrage**
 - 🏠 **Fonction de homing** pour retrouver la position de référence
 - 🔄 **Optimisation des trajets** (chemin le plus court)
-- 💾 **Sauvegarde en EEPROM** de la configuration et de l'état
+- 💾 **Sauvegarde en EEPROM** des positions et de la voie courante en EEPROM avec contrôle d’intégrité
 - 🎮 **Interface LCD 20x4** avec clavier 4x4 intégré
-- 🔧 **Mode maintenance** et **mode calibration**
-- ⚙️ **Diagnostic au démarrage**
+- 🔧 **Mode maintenance** pour le déplacement manuel du pont 
+- ⚙️ **Mode calibration** pour ajuster et sauvegarder précisément les positions des voies
 
 ---
 
-## 🛠️ Matériel Requis
+## 🛠️ Matériel Requis et connexions
 
 | Composant | Spécifications | Broche Arduino |
 |-----------|-----------------|-----------------|
@@ -33,33 +34,23 @@ Le pont tournant permet de faire pivoter une voie pour aligner une locomotive av
 | **Buzzer** | Confirmation audio | D13 |
 | **EEPROM** | Sauvegarde configuration | Intégrée à l'Arduino |
 
-### Schéma de connexion
-```
-Arduino Pin Layout:
-D2-D5: Colonnes du clavier (C0-C3)
-D6-D9: Lignes du clavier (R0-R3)
-D11:   DIR du moteur (A4988)
-D12:   STEP du moteur (A4988)
-D13:   Buzzer
-A0:    Capteur Hall (avec pull-up interne)
-A4:    SDA (LCD I2C)
-A5:    SCL (LCD I2C)
-```
-
----
-
 ## 📋 Exigences et Contraintes Système
 
 ### Contraintes physiques
 - Le pont **n'est pas symétrique** (présence d'une cabine de pilotage)
 - L'entrée de la locomotive se fait toujours **à l'opposé de la cabine**
-- **Retournement possible** : pivot de 180° nécessaire sur certaines manœuvres
+- **Retournement possible** : pivot de 180° nécessaire sur certaines manœuvres (retournement)
 - **Optimisation requise** : chemin le plus court (sens horaire ou anti-horaire)
+
+### Contraintes électriques
+- La broche **ENA du driver A4988 n’est pas connectée**, ce qui maintient le courant dans le moteur 
+  pour une position stable mais peut entraîner une surchauffe. Il faut impérativement ajuster le courant maximal 
+  délivré au moteur pas à pas *via* le potentiomètre présent sur le driver.
 
 ### Contraintes logiques
 - La **voie d'entrée** (voie 0) est le point de référence (position zéro)
 - **Fonction de homing** appelée systématiquement à l'initialisation
-- **Sauvegarde en EEPROM** de la configuration et de l'état courant
+- **Sauvegarde en EEPROM** de la configuration des voies et de la voie courante
 - **Magic byte** (0xA5) pour vérifier l'intégrité des données en EEPROM
 
 ### Configuration du système
@@ -69,7 +60,7 @@ A5:    SCL (LCD I2C)
 
 ---
 
-## ⚙️ Limitation Actuelle et Extensions Futures
+##🚦Limitation Actuelle et Extensions Futures
 
 ### Limitation : 40 voies maximum
 
@@ -78,8 +69,8 @@ Actuellement, le logiciel est configuré pour gérer **40 voies maximum**.
 ### Pour dépasser cette limite :
 
 **1. Modifications logicielles :**
-- Modifier la constante `NB_MAX_VOIE` (ligne 116)
-- Adapter le tableau `tabVoie[]` (ligne 118)
+- Modifier la constante `NB_MAX_VOIE`
+- Adapter le tableau `tabVoie[]`
 - Mettre à jour les messages LCD (ex: "Voie (1-40)")
 - Modifier la logique de saisie dans `saisirNumeroVoie()`
 - Recalculer l'espacement entre voies
@@ -88,12 +79,6 @@ Actuellement, le logiciel est configuré pour gérer **40 voies maximum**.
 - Pour 80 voies : espacement de 5 pas (400 / 80) au lieu de 10
 - Moteur plus précis ou réduction différente
 - EEPROM supplémentaire si nécessaire
-
-**3. Exemple pour 80 voies :**
-```cpp
-#define NB_MAX_VOIE 80
-// Chaque voie = 5 pas (400 / 80)
-```
 
 ---
 
@@ -219,11 +204,11 @@ Fonction : `calculerPlusCourtChemin(posActuelle, posCible)`
 ```
 Distance directe = posCible - posActuelle
 
-SI |Distance| > 200 pas (demi-tour) ALORS
+SI |Distance| > (MAX_PAS / 2) pas (demi-tour) ALORS
    SI Distance > 0 ALORS
-      Distance -= 400  // Aller "à rebours"
+      Distance -= MAX_PAS  // Aller "à rebours"
    SINON
-      Distance += 400  // Aller "à l'endroit"
+      Distance += MAX_PAS  // Aller "à l'endroit"
    FIN SI
 FIN SI
 
@@ -242,11 +227,11 @@ Retourner Distance optimisée
 
 Fonction : `normaliserPosition()`
 
-Ramène la position du moteur dans l'intervalle **[0..399]** en utilisant le modulo :
+Ramène la position du moteur dans l'intervalle **[0..MAX_PAS]** en utilisant le modulo :
 
 ```cpp
-position = position % 400
-if (position < 0) position += 400
+position = position % MAX_PAS
+SI (position < 0) ALORS position += MAX_PAS
 ```
 
 Cela évite les débordements lors de manœuvres répétées.
@@ -257,7 +242,7 @@ Cela évite les débordements lors de manœuvres répétées.
 
 **Stratégie :**
 - Vérification du magic byte au démarrage
-- Validation des données (0 ≤ pos ≤ 400)
+- Validation des données (0 ≤ pos ≤ MAX_PAS)
 - Réinitialisation si corrompues
 - Write optimisé : écriture seulement si changement
 
@@ -270,49 +255,6 @@ Affiche :
 - Numéro de voie courant
 - État du capteur Hall (ACTIF ou Libre)
 - Version du logiciel
-
----
-
-## 🚦 Procédures Typiques
-
-### Manœuvre d'entrée (Garer une loco)
-
-```
-1. Menu principal → Sélectionner "Entree"
-2. Pont se déplace vers voie d'entrée (0)
-3. Locomotive monte sur le pont
-4. Saisir la voie destination (1-40)
-5. Choisir retournement : Oui ou Non
-6. Pont se déplace vers destination
-7. Confirmation "Manoeuvre OK"
-```
-
-### Manœuvre de sortie (Sortir une loco)
-
-```
-1. Menu principal → Sélectionner "Sortie"
-2. Saisir la voie d'où extraire (1-40)
-3. Pont se déplace vers cette voie
-4. Locomotive monte sur le pont
-5. Choisir retournement : Oui ou Non
-6. Pont retourne à voie d'entrée (0)
-7. Confirmation "Manoeuvre OK"
-```
-
-### Calibration d'une voie
-
-```
-1. Menu principal → Sélectionner "Calibration"
-2. Affichage de la voie courante et son offset
-3. Ajuster l'offset :
-   - U : +1 pas
-   - D : -1 pas
-4. Naviguer vers autres voies :
-   - R : Voie suivante
-   - L : Voie précédente
-5. V : Sauvegarder en EEPROM
-6. E : Quitter mode calibration
-```
 
 ---
 
@@ -344,7 +286,10 @@ Affiche :
 
 ## 📄 Licence
 
-À définir par les auteurs
+Ce projet est sous licence **GNU General Public License v3.0 (GPLv3)**.
+Vous êtes libre de copier, modifier et distribuer ce logiciel, à condition que toute version modifiée soit également distribuée sous la même licence GPLv3. 
+Pour plus de détails, consultez : https://www.gnu.org/licenses/gpl-3.0.html
+
 
 ---
 
