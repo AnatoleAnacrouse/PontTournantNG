@@ -50,8 +50,8 @@
 // ------------------------------------------------------------------------------------
 // CONSTANTES MOTEUR
 // ------------------------------------------------------------------------------------
-#define SPEED_NORMAL     700
-#define ACCEL_NORMAL     100
+#define SPEED_NORMAL    1000
+#define ACCEL_NORMAL     200
 #define SPEED_HOMING      50
 #define ACCEL_HOMING     100
 
@@ -617,7 +617,7 @@ int saisirNumeroVoie() {
   // Afficher le message de saisie de la voie
   effacerLigne(2);
   effacerLigne(3);
-  afficherMessage("Voie (1-" + String (NB_MAX_VOIE) + "):",1);
+  afficherLigne("Voie (1-" + String (NB_MAX_VOIE) + "):",1);
   lcd.setCursor(0, 2); lcd.print("> ");
 
   while (!JESUS_CHRIST) {
@@ -684,7 +684,7 @@ int demanderRetournement() {
   // Afficher le message de saisie du retournement
   effacerLigne(2);
   effacerLigne(3);
-  afficherMessage("Retournement:", 1);
+  afficherLigne("Retournement:       ", 1);
 
   while (!JESUS_CHRIST) {
 
