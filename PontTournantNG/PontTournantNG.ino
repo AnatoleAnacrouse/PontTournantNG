@@ -1,9 +1,9 @@
 // ====================================================================================
 //                         PONT TOURNANT NOUVELLE GÉNÉRATION
 // ====================================================================================
-#define VERSION   "V0.3"
+#define VERSION   "V0.4"
 // Auteur  : M. EPARDEAU et F. FRANKE
-// Date    : 26 mars 2026
+// Date    : 29 mars 2026
 // Projet  : Contrôle d’un pont tournant motorisé pour maquette ferroviaire :
 //           - Permet de déplacer une locomotive entre une voie d’entrée et une voie 
 //             du dépôt, avec ou sans retournement, via un pont tournant motorisé.
