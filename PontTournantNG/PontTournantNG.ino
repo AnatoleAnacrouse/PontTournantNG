@@ -50,10 +50,10 @@
 // ------------------------------------------------------------------------------------
 // CONSTANTES MOTEUR
 // ------------------------------------------------------------------------------------
-#define SPEED_NORMAL    1000
-#define ACCEL_NORMAL     200
+#define SPEED_NORMAL     200
+#define ACCEL_NORMAL      10
 #define SPEED_HOMING      50
-#define ACCEL_HOMING     100
+#define ACCEL_HOMING       5
 
 // ------------------------------------------------------------------------------------
 // CONSTANTES D'AFFICHAGE
@@ -310,19 +310,20 @@ void chargerEEPROM() {
 // ------------------------------------------------------------------------------------
 // GESTION DE LA BARRE DE PROGRESSION SUR L'AFFICHEUR LCD
 // ------------------------------------------------------------------------------------
-void afficherProgression(float progress) {
+inline void afficherProgression(float progress) __attribute__((always_inline));
+
+inline void afficherProgression(float progress) {
 
   // Ecréter entre 0.0 et 1.0
   if (progress < 0.0) progress = 0.0;
   if (progress > 1.0) progress = 1.0;
 
   // Calculer le nombre de blocks à afficher
-  int total = NB_CHAR;
-  int blocs = (int)(progress * total);
+  int blocs = (int)(progress * NB_CHAR);
 
   // Afficher les blocks et effacer le reste de la ligne
   lcd.setCursor(0, 2);
-  for (int i = 0; i < total; i++) {
+  for (int i = 0; i < NB_CHAR; i++) {
     lcd.print(i < blocs ? char(255) : ' ');
   }
 
@@ -489,7 +490,7 @@ void deplacerPontTournant(long cible) {
 
   // Définir la position de départ et le nombre de pas
   long depart = pontTournant.currentPosition();
-  long distanceTotale = abs(cible - depart);
+  float distanceTotale = abs(cible - depart);
 
   // Ne rien faire si le pont est déjà en position
   if (distanceTotale == 0) {
@@ -499,13 +500,13 @@ void deplacerPontTournant(long cible) {
 
   // Déplacer le pont en affichant la progression
   pontTournant.moveTo(cible);
-  while (pontTournant.distanceToGo() != 0) {
+  while (pontTournant.distanceToGo() > 0) {
     pontTournant.run();
-    long distanceParcourue = abs(pontTournant.currentPosition() - depart);
-    float progress = (float)distanceParcourue / (float)distanceTotale;
-    afficherProgression(progress);
+    float distanceParcourue = abs(pontTournant.currentPosition() - depart);
+    afficherProgression(distanceParcourue / distanceTotale);
   } 
   afficherProgression(1.0);
+
 }
 
 // ------------------------------------------------------------------------------------
