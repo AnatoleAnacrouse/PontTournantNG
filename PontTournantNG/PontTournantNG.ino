@@ -1,7 +1,7 @@
 // ====================================================================================
 //                         PONT TOURNANT NOUVELLE GÉNÉRATION
 // ====================================================================================
-#define VERSION   "V0.5"
+#define VERSION   "V0.6"
 // Auteur  : M. EPARDEAU et F. FRANKE
 // Date    : 30 mars 2026
 // Projet  : Contrôle d’un pont tournant motorisé pour maquette ferroviaire :
@@ -50,9 +50,9 @@
 // ------------------------------------------------------------------------------------
 // CONSTANTES MOTEUR
 // ------------------------------------------------------------------------------------
-#define SPEED_NORMAL     200
+#define SPEED_NORMAL      50
 #define ACCEL_NORMAL      10
-#define SPEED_HOMING      50
+#define SPEED_HOMING      30
 #define ACCEL_HOMING       5
 
 // ------------------------------------------------------------------------------------
@@ -65,7 +65,7 @@
 // ------------------------------------------------------------------------------------
 // CONSTANTES DE DUREE MAX DU HOMING
 // ------------------------------------------------------------------------------------
-#define DELAY_WATCHDOG    10000
+#define DELAY_WATCHDOG    100000
 
 // ------------------------------------------------------------------------------------
 // CAPTEUR HALL & BUZZER
@@ -310,16 +310,16 @@ void chargerEEPROM() {
 // ------------------------------------------------------------------------------------
 // GESTION DE LA BARRE DE PROGRESSION SUR L'AFFICHEUR LCD
 // ------------------------------------------------------------------------------------
-inline void afficherProgression(float progress) __attribute__((always_inline));
+inline void afficherProgression(int progress) __attribute__((always_inline));
 
-inline void afficherProgression(float progress) {
+inline void afficherProgression(int progress) {
 
   // Ecréter entre 0.0 et 1.0
-  if (progress < 0.0) progress = 0.0;
-  if (progress > 1.0) progress = 1.0;
+  if (progress < 0) progress = 0;
+  if (progress > 100) progress = 100;
 
   // Calculer le nombre de blocks à afficher
-  int blocs = (int)(progress * NB_CHAR);
+  int blocs = int((progress/100.0) * NB_CHAR);
 
   // Afficher les blocks et effacer le reste de la ligne
   lcd.setCursor(0, 2);
@@ -329,7 +329,7 @@ inline void afficherProgression(float progress) {
 
   // Afficher le % de progression
   lcd.setCursor(0, 3);
-  lcd.print((int)(progress * 100));
+  lcd.print(progress);
   lcd.print("%   ");
 }
 
@@ -366,6 +366,7 @@ void diagnostic() {
 void homing() {
 
   afficherLigne("Recherche origine...", 2);
+  effacerLigne(3);
 
   // Réduire vitesse et accélération
   pontTournant.setMaxSpeed(SPEED_HOMING);
@@ -385,10 +386,9 @@ void homing() {
     pontTournant.run();
   }
   pontTournant.stop();
-  delay(200);
 
   // Si la voie est detectée
-  if (digitalRead(hallPin) == LOW) {
+  if ((digitalRead(hallPin) == LOW) || (pontTournant.distanceToGo() > 0)) {
     // Définir la position de la voie d'entrée
     pontTournant.setCurrentPosition(0);
     configPT.voieCourante = voieEntree;
@@ -399,8 +399,7 @@ void homing() {
     //afficherLigne("Origine OK", 3);
   }
   else { // Informer l'opérateur de l'echec 
-    afficherMessage("Origine OK", 3, true, TIMEOUT_ERREUR);
-    //afficherLigne("ECHEC: origine NOK ", 3);
+    afficherMessage("ECHEC: origine NOK  ", 3, true, TIMEOUT_ERREUR);
   }
   delay(2*TIMEOUT_MSG);
 
@@ -491,10 +490,11 @@ void deplacerPontTournant(long cible) {
   // Définir la position de départ et le nombre de pas
   long depart = pontTournant.currentPosition();
   float distance = abs(cible - depart);
+  int distanceParcourue = 0;
 
   // Ne rien faire si le pont est déjà en position
   if (distance == 0.0) {
-    afficherProgression(1.0);
+    afficherProgression(100);
     return;
   }
 
@@ -502,10 +502,13 @@ void deplacerPontTournant(long cible) {
   pontTournant.moveTo(cible);
   while (pontTournant.distanceToGo() != 0) {
     pontTournant.run();
-    float distanceParcourue = abs(pontTournant.currentPosition() - depart);
-    afficherProgression(distanceParcourue / distance);
+    // Calculer le restee à faire et n'afficher qu'une fois sur dix
+    distanceParcourue = abs(pontTournant.currentPosition() - depart);
+    if  ((distanceParcourue%10)==0) {
+       afficherProgression(int((distanceParcourue / distance) *100));
+    }  
   } 
-  afficherProgression(1.0);
+  afficherProgression(100);
 }
 
 // ------------------------------------------------------------------------------------
