@@ -1,9 +1,9 @@
 // ====================================================================================
 //                         PONT TOURNANT NOUVELLE GÉNÉRATION
 // ====================================================================================
-#define VERSION   "V0.4"
+#define VERSION   "V0.5"
 // Auteur  : M. EPARDEAU et F. FRANKE
-// Date    : 29 mars 2026
+// Date    : 30 mars 2026
 // Projet  : Contrôle d’un pont tournant motorisé pour maquette ferroviaire :
 //           - Permet de déplacer une locomotive entre une voie d’entrée et une voie 
 //             du dépôt, avec ou sans retournement, via un pont tournant motorisé.
@@ -146,7 +146,6 @@ const int stepsPerRevolution = 400;
 // ------------------------------------------------------------------------------------
 // CONFIGURATION DU PONT
 // ------------------------------------------------------------------------------------
-
 struct ConfigurationPontTournant {
   byte magic;
   int tabVoie[NB_MAX_VOIE + 1];
@@ -162,8 +161,9 @@ ConfigurationPontTournant configPT;
 enum TypeManoeuvre {
   MANOEUVRE_ENTREE      = 0,
   MANOEUVRE_SORTIE      = 1,
-  MANOEUVRE_MAINTENANCE = 2,
-  MANOEUVRE_CALIBRATION = 3
+  MANOEUVRE_TRANSFERT   = 2,
+  MANOEUVRE_MAINTENANCE = 3,
+  MANOEUVRE_CALIBRATION = 4
 };
 
 // ------------------------------------------------------------------------------------
@@ -473,7 +473,7 @@ long calculerPlusCourtChemin(long posActuelle, long posCible) {
   long distance = posCible - posActuelle;
 
   // Si la distance absolue est supérieure à la moitié d'un tour complet
-  if (abs(distance) > stepsPerRevolution / 2) {
+  if (abs(distance) > (stepsPerRevolution / 2)) {
     // Ajuster la distance pour prendre le chemin le plus court :
     //   - si la distance est positive on soustrait un tour complet
     //   - si la distance est négative on ajoute un tour complet
@@ -490,23 +490,22 @@ void deplacerPontTournant(long cible) {
 
   // Définir la position de départ et le nombre de pas
   long depart = pontTournant.currentPosition();
-  float distanceTotale = abs(cible - depart);
+  float distance = abs(cible - depart);
 
   // Ne rien faire si le pont est déjà en position
-  if (distanceTotale == 0) {
+  if (distance == 0.0) {
     afficherProgression(1.0);
     return;
   }
 
   // Déplacer le pont en affichant la progression
   pontTournant.moveTo(cible);
-  while (pontTournant.distanceToGo() > 0) {
+  while (pontTournant.distanceToGo() != 0) {
     pontTournant.run();
     float distanceParcourue = abs(pontTournant.currentPosition() - depart);
-    afficherProgression(distanceParcourue / distanceTotale);
+    afficherProgression(distanceParcourue / distance);
   } 
   afficherProgression(1.0);
-
 }
 
 // ------------------------------------------------------------------------------------
@@ -536,7 +535,7 @@ int manoeuvrerPontTournant(const int versVoie, const int retournement) {
 
   // Remettre a jour la configuration
   configPT.voieCourante = voieCible;
-  sauvegarderVoieCourante();
+  //sauvegarderVoieCourante();
 
   return OK;
 }
@@ -546,49 +545,58 @@ int manoeuvrerPontTournant(const int versVoie, const int retournement) {
 // ------------------------------------------------------------------------------------
 int saisirTypeManoeuvre() {
 
+  const int nbManoeuvres = 5;
   const char* manoeuvres[] = {
-    "Entree", "Sortie", "Maintenance", "Calibration" 
+    "Entree", "Sortie", "Transfert", "Maintenance", "Calibration" 
   };
 
-  const int nbManoeuvres = 4;
   char touche = '\0';
   bool entreeValide = false;
-  byte selection = 0;
+
+  byte startIndex = 0;     // Index du premier item affiché à l'écran
+  byte selection = 0;              // Index le l'élément selectionné
+  byte selectionGlobale = 0;       // Index global de la sélection dans le tableau
+  byte selectionPrecedente = -1;   // Forcer le premier affichage
+  byte startIndexPrecedent = -1;
 
   lcd.clear();
-  // Forcer le premier affichage
-  int selectionPrecedente = -1;
 
   while (!JESUS_CHRIST) {
 
-    // Afficher tous les items du menu
-    if (selection != selectionPrecedente) {
-      for (int i = 0; i < nbManoeuvres; i++) {
-
+    // Affichage seulement si la sélection ou la fenêtre a changé
+    if (selection != selectionPrecedente || startIndex != startIndexPrecedent) {
+      for (int i = 0; i < NB_LIGNE; i++) {
+        int itemIndex = startIndex + i;
         // Construire une ligne fixe de 20 caractères
-        char ligne[21]; 
-        memset(ligne, ' ', 20); 
-        ligne[20] = '\0';
+        char ligne[NB_CHAR + 1];
+        memset(ligne, ' ', NB_CHAR);
+        ligne[NB_CHAR] = '\0';
 
         // Si la ligne est selectionnée alors afficher le curseur
-        ligne[0] = (i == selection) ? '>' : ' ';
-        ligne[1] = ' ';
-        
-        // Ecrire le Label de l'item depuis la colonne 2, max 18 chars
-        const char* label = manoeuvres[i];
-        int len = strlen(label);
-        if (len > 18) len = 18;
-        memcpy(&ligne[2], label, len);
-        
+        if (itemIndex < nbManoeuvres) {
+          ligne[0] = (i == selection) ? '>' : ' ';
+          ligne[1] = ' ';
+          // Ecrire le Label de l'item depuis la colonne 2, max 18 chars
+          const char* label = manoeuvres[itemIndex];
+          int len = strlen(label);
+          if (len > 18) len = 18;
+          memcpy(&ligne[2], label, len);
+        }
+        else {
+          // Ligne vide si pas d'item
+          memset(ligne, ' ', NB_CHAR);
+          ligne[NB_CHAR] = '\0';
+        }
         // Afficher la ligne sur l'écran LCD
         lcd.setCursor(0, i);
         lcd.print(ligne);
       }
-      // Mémoriser la ligne selectionnée
+      // Etablir la "fenetre" du menu
       selectionPrecedente = selection;
+      startIndexPrecedent = startIndex;
     }
 
-    // Attendre la réponse de l'opérateur
+    // Attente d'une touche valide
     do {
       touche = keypad.getKey();
       entreeValide = ((touche == 'U') ||
@@ -597,13 +605,38 @@ int saisirTypeManoeuvre() {
                       (touche == 'E'));
     } while (!entreeValide);
 
-    // Traiter le choix de l'opérateur
-    if (touche == 'U' && selection > 0) selection--;
-    if (touche == 'D' && selection < nbManoeuvres - 1) selection++;
-    if (touche == 'V') return selection;
-    if (touche == 'E') return ABANDON;
-
-    //delay(100);
+    // Gestion des touches
+    if (touche == 'U') {
+      if (selection == 0) {
+        // Si on est en haut de la fenêtre et qu'on peut remonter dans la liste
+        if (startIndex > 0) {
+          startIndex--;
+        }
+      } else {
+        selection--;
+      }
+    }
+    else if (touche == 'D') {
+      if (selection == 3) {
+        // Si on est en bas de la fenêtre et qu'on peut descendre dans la liste
+        if ((startIndex + 4) < nbManoeuvres) {
+          startIndex++;
+        }
+      } else {
+        // Vérifier qu'on ne dépasse pas le nombre total d'items
+        if ((startIndex + selection + 1) < nbManoeuvres) {
+          selection++;
+        }
+      }
+    }
+    else if (touche == 'V') {
+      // Calcul de l'index global sélectionné
+      selectionGlobale = startIndex + selection;
+      return selectionGlobale;
+    }
+    else if (touche == 'E') {
+      return ABANDON;
+    }
   }
 }
 
@@ -868,6 +901,12 @@ void loop() {
       }     
       manoeuvrerPontTournant(voieEntree, retournementChoisi);
     break;
+
+    // Amener une locomotive d'une voie du dépôt vers une autre voie du dépôt 
+    case MANOEUVRE_TRANSFERT:
+      afficherTitre("== TRANSFERT ==");
+      delay(2000);
+      return;
 
     // Déplacer le pont manuellement par pas unitaire ou de dix
     case MANOEUVRE_MAINTENANCE:
