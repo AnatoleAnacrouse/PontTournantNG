@@ -1,15 +1,15 @@
 // ====================================================================================
 //                         PONT TOURNANT NOUVELLE GÉNÉRATION
 // ====================================================================================
-#define VERSION   "V0.6"
+#define VERSION   "V0.7"
 // Auteur  : M. EPARDEAU et F. FRANKE
-// Date    : 30 mars 2026
+// Date    : 1 avril 2026
 // Projet  : Contrôle d’un pont tournant motorisé pour maquette ferroviaire :
 //           - Permet de déplacer une locomotive entre une voie d’entrée et une voie 
 //             du dépôt, avec ou sans retournement, via un pont tournant motorisé.
 //           - Une fonction de "homing" permet de rechercher la position de la voie
 //             de garage.
-//           - Un diagnostique est lancé au démarrage afin de présenter la position 
+//           - Un diagnostic est lancé au démarrage afin de présenter la position 
 //             du moteur, la voie courante et l'état capteur Hall
 //           - Le mode MAINTENANCE permet de déplacer manuellement le pont par 
 //             pas de 1 ou 10.
@@ -107,9 +107,8 @@ Keypad keypad = Keypad(makeKeymap(kpKeys), rowKpPin, colKpPin, ROWS, COLS);
 // La broche ENA du driver n'est pas connectée à l'Arduino et restera donc à l'état bas.
 // Un courant circulera dans les bobines du moteur même à l'arrêt ce qui permettra au
 // pont de rester parfaitement aligné face aux voies. Par contre, le driver A4988 et 
-// le moteur vont chauffer. Il est donc impératif de l est plus efficace de régler 
-// correctement le potentiomètre de courant sur le driver A4988 à la valeur minimale
-// afin d'éviter une surchauffe.
+// le moteur vont chauffer. Il est donc impératif de régler correctement le courant 
+// via le potentiomètre du driver A4988 à la valeur minimale.
 // ------------------------------------------------------------------------------------
 const int dirStepperPin  = 11;
 const int stepStepperPin = 12;
@@ -231,7 +230,7 @@ void afficherMessage(String msg, byte ligne = 1, bool erreur = false, int duree 
 
 // ------------------------------------------------------------------------------------
 // SAUVEGARDE DE LA VOIE COURANTE EN EEPROM
-// ATTENTION : l'EEPROM est limitée à 100 0000 écritures. On ne sauvegarde la voie
+// ATTENTION : l'EEPROM est limitée à 100 000 écritures. On ne sauvegarde la voie
 //             courante que si la valeur a changée.
 // ------------------------------------------------------------------------------------
 void sauvegarderVoieCourante() {
@@ -253,15 +252,15 @@ void sauvegarderVoieCourante() {
 // ------------------------------------------------------------------------------------
 void sauverConfigurationPontTournant() {
   configPT.magic = EEPROM_MAGIC_VALUE;
-  configPT.voieCourante = voieEntree;
+  configPT.voieCourante = voieEntree; // problématique lors d'une calibration (à commenter???)
   memcpy(configPT.tabVoie, tabVoie, sizeof(tabVoie));
   EEPROM.put(EEPROM_ADDR_VOIES, configPT);
 }
 
 // ------------------------------------------------------------------------------------
 // Gere en EEPROM la configuration du pont (tabVoie et voieCourante)
-// et vérifie que ces donnes sont presentes et valides.
-// Un magic byte permet de determiner le type d'un fichier
+// et vérifie que ces données sont presentes et valides.
+// Un magic byte permet de determiner le type d'un fichier (ici la présence)
 // ------------------------------------------------------------------------------------
 void chargerEEPROM() {
 
@@ -292,7 +291,7 @@ void chargerEEPROM() {
 
   // Vérifier que la voie courante est valide
   if (valide) { 
-    if ((configPT.voieCourante  < 0) || (configPT.voieCourante > stepsPerRevolution)) {
+    if ((configPT.voieCourante  < 0) || (configPT.voieCourante > NB_MAX_VOIE)) {
       valide = false; 
     }
   }
@@ -349,7 +348,7 @@ void diagnostic() {
   afficherLigne(message, 1);
   message = "Pos:" + String(pontTournant.currentPosition())
           + " Voie:"
-          + (configPT.voieCourante == 0 ? "garage" : String(configPT.voieCourante));
+          + (configPT.voieCourante == 0 ? "entree" : String(configPT.voieCourante));
   afficherLigne(message, 2);
   afficherLigne("V ou E: Quitter", 3);
 
@@ -388,7 +387,7 @@ void homing() {
   pontTournant.stop();
 
   // Si la voie est detectée
-  if ((digitalRead(hallPin) == LOW) || (pontTournant.distanceToGo() > 0)) {
+  if (digitalRead(hallPin) == LOW) {
     // Définir la position de la voie d'entrée
     pontTournant.setCurrentPosition(0);
     configPT.voieCourante = voieEntree;
@@ -438,7 +437,7 @@ int voieOpposee(int voie) {
 
 // ------------------------------------------------------------------------------------
 // NORMALISATION POSITION MOTEUR
-// La librairie AccelStepper calcul un nombre de pas absolue positif ou négatif
+// La librairie AccelStepper calcul un nombre de pas absolu positif ou négatif
 // selon le sens de rotation. Par exemple, la position courante du moteur sera égale 
 // à 800 // après deux révolutions d'un moteur à 400 pas par révolution. 
 // ------------------------------------------------------------------------------------
@@ -452,7 +451,7 @@ long normaliserPosition() {
     position += stepsPerRevolution;
   }
 
-  // Reconnfigurer le moteur
+  // Reconfigurer le moteur
   pontTournant.setCurrentPosition(position);
   return position;
 }
@@ -502,7 +501,7 @@ void deplacerPontTournant(long cible) {
   pontTournant.moveTo(cible);
   while (pontTournant.distanceToGo() != 0) {
     pontTournant.run();
-    // Calculer le restee à faire et n'afficher qu'une fois sur dix
+    // Calculer le reste à faire et n'afficher qu'une fois sur dix
     distanceParcourue = abs(pontTournant.currentPosition() - depart);
     if  ((distanceParcourue%10)==0) {
        afficherProgression(int((distanceParcourue / distance) *100));
@@ -512,7 +511,7 @@ void deplacerPontTournant(long cible) {
 }
 
 // ------------------------------------------------------------------------------------
-// REALISER UNE MENOEUVRE D'ENTREE OU DE SORTIE DU PONT TOURNANT
+// REALISER UNE MANOEUVRE D'ENTREE OU DE SORTIE DU PONT TOURNANT
 // ------------------------------------------------------------------------------------
 int manoeuvrerPontTournant(const int versVoie, const int retournement) {
 
@@ -556,11 +555,11 @@ int saisirTypeManoeuvre() {
   char touche = '\0';
   bool entreeValide = false;
 
-  byte startIndex = 0;     // Index du premier item affiché à l'écran
-  byte selection = 0;              // Index le l'élément selectionné
-  byte selectionGlobale = 0;       // Index global de la sélection dans le tableau
-  byte selectionPrecedente = -1;   // Forcer le premier affichage
-  byte startIndexPrecedent = -1;
+  int startIndex = 0;             // Index du premier item affiché à l'écran
+  int selection = 0;              // Index de l'élément selectionné
+  int selectionGlobale = 0;       // Index global de la sélection dans le tableau
+  int selectionPrecedente = -1;   // Forcer le premier affichage
+  int startIndexPrecedent = -1;
 
   lcd.clear();
 
@@ -693,10 +692,13 @@ int saisirNumeroVoie() {
       // ===> TRAITER LA VOIE DE GARAGE = 0
       int voie = saisie.toInt();
       if (voie < 1 || voie > NB_MAX_VOIE) {
-        String message = "ERREUR" + String(NB_MAX_VOIE);
+        String message = "Voie invalide (1-" + String(NB_MAX_VOIE) + ")";
+        //String message = "ERREUR" + String(NB_MAX_VOIE);
         afficherMessage(message, 2, true, TIMEOUT_ERREUR);
         effacerLigne(2);
+        effacerLigne(3);
         saisie = "";
+        lcd.setCursor(0, 2); lcd.print("> ");
         continue;
       }
       // Sinon retourner la voie
@@ -758,7 +760,7 @@ void modeMaintenance() {
 
   while (!JESUS_CHRIST) {
 
-    // Affichier le menu
+    // Afficher le menu
     message = "Offset:" + String(pontTournant.currentPosition())
             + ((digitalRead(hallPin) == LOW) ? " Hall ACTIF" : " Hall libre");
     afficherLigne(message, 1);
@@ -800,7 +802,7 @@ void modeCalibration() {
 
   while (!JESUS_CHRIST) {
 
-    // Affichier le menu
+    // Afficher le menu
     message = "Voie:" + String(voie) + " Offset:" + String(configPT.tabVoie[voie]);
     afficherLigne(message, 1);
     afficherLigne("Voie: R/L Offset:U/D", 2);
@@ -876,40 +878,65 @@ void loop() {
     // Amener une locomotive depuis la voie d’entrée vers une voie du dépôt.
     case MANOEUVRE_ENTREE:
       afficherTitre("== ENTREE ==");
+
+      // Aller sur la voie d'entrée
       if (configPT.voieCourante != voieEntree) {
         manoeuvrerPontTournant(voieEntree, false);
       }
+
+      // Selectionner la voie de garage
       voieSelectionnee = saisirNumeroVoie();
-      if (voieSelectionnee == ABANDON) {
-        return;
-      }
+      if (voieSelectionnee == ABANDON) { return; }
+
+      // Demander le retournement
       retournementChoisi = demanderRetournement();
-      if (retournementChoisi == ABANDON) {
-        return;
-      }
+      if (retournementChoisi == ABANDON) { return; }
+
+      // Aller sur la voie de garage
       manoeuvrerPontTournant(voieSelectionnee, retournementChoisi);
     break;
 
     // Amener une locomotive d'une voie du dépôt vers la voie d’entrée
     case MANOEUVRE_SORTIE:
       afficherTitre("== SORTIE ==");
+
+      // Selectionner la voie de garage
       voieSelectionnee = saisirNumeroVoie();
-      if (voieSelectionnee == ABANDON) {
-        return;
-      }
+      if (voieSelectionnee == ABANDON) { return; }
+
+      // Aller sur la voie de garage
       manoeuvrerPontTournant(voieSelectionnee, false);
+
+      // Demander le retournement
       retournementChoisi = demanderRetournement();
-      if (retournementChoisi == ABANDON) {
-        return;
-      }     
+      if (retournementChoisi == ABANDON) { return; }
+
+      // Aller sur la voie d'entrée 
       manoeuvrerPontTournant(voieEntree, retournementChoisi);
     break;
 
     // Amener une locomotive d'une voie du dépôt vers une autre voie du dépôt 
     case MANOEUVRE_TRANSFERT:
       afficherTitre("== TRANSFERT ==");
-      delay(2000);
-      return;
+
+      // Selectionner la voie de garage source    
+      voieSelectionnee = saisirNumeroVoie();
+      if (voieSelectionnee == ABANDON) { return; }
+
+      // Demander le retournement
+      retournementChoisi = demanderRetournement();
+      if (retournementChoisi == ABANDON) { return; }
+
+      // Aller sur la voie de garage source
+      manoeuvrerPontTournant(voieSelectionnee, retournementChoisi);
+
+       // Selectionner la voie de garage destination     
+      voieSelectionnee = saisirNumeroVoie();
+      if (voieSelectionnee == ABANDON) { return; }
+
+      // Aller sur la voie de garage destination
+      manoeuvrerPontTournant(voieSelectionnee, false);
+    break;
 
     // Déplacer le pont manuellement par pas unitaire ou de dix
     case MANOEUVRE_MAINTENANCE:
@@ -927,7 +954,7 @@ void loop() {
     default:
       lcd.clear();
       afficherMessage("ERREUR GRAVE", 3, true, TIMEOUT_ERREUR);
-      return;
+      beep(true);
   }
 
   // Finaliser la manoeuvre
