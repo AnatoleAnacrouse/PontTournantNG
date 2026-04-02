@@ -3,7 +3,7 @@
 // ====================================================================================
 #define VERSION   "V0.7"
 // Auteur  : M. EPARDEAU et F. FRANKE
-// Date    : 1 avril 2026
+// Date    : 2 avril 2026
 // Projet  : Contrôle d’un pont tournant motorisé pour maquette ferroviaire :
 //           - Permet de déplacer une locomotive entre une voie d’entrée et une voie 
 //             du dépôt, avec ou sans retournement, via un pont tournant motorisé.
@@ -50,10 +50,10 @@
 // ------------------------------------------------------------------------------------
 // CONSTANTES MOTEUR
 // ------------------------------------------------------------------------------------
-#define SPEED_NORMAL      50
-#define ACCEL_NORMAL      10
-#define SPEED_HOMING      30
-#define ACCEL_HOMING       5
+#define SPEED_NORMAL     50
+#define ACCEL_NORMAL     10
+#define SPEED_HOMING     20
+#define ACCEL_HOMING      5
 
 // ------------------------------------------------------------------------------------
 // CONSTANTES D'AFFICHAGE
@@ -65,7 +65,7 @@
 // ------------------------------------------------------------------------------------
 // CONSTANTES DE DUREE MAX DU HOMING
 // ------------------------------------------------------------------------------------
-#define DELAY_WATCHDOG    100000
+#define DELAY_WATCHDOG   10000 // 10 000 ms = 10 secondes
 
 // ------------------------------------------------------------------------------------
 // CAPTEUR HALL & BUZZER
@@ -103,13 +103,14 @@ byte colKpPin[COLS] = {5, 4, 3, 2};
 Keypad keypad = Keypad(makeKeymap(kpKeys), rowKpPin, colKpPin, ROWS, COLS);
 
 // ------------------------------------------------------------------------------------
-// MOTEUR PAS À PAS
+// MOTEUR PAS À PAS PILOTE VIA LE DRIVER A4988
 // La broche ENA du driver n'est pas connectée à l'Arduino et restera donc à l'état bas.
 // Un courant circulera dans les bobines du moteur même à l'arrêt ce qui permettra au
 // pont de rester parfaitement aligné face aux voies. Par contre, le driver A4988 et 
 // le moteur vont chauffer. Il est donc impératif de régler correctement le courant 
 // via le potentiomètre du driver A4988 à la valeur minimale.
 // ------------------------------------------------------------------------------------
+const int enaStepperPin  = 10;
 const int dirStepperPin  = 11;
 const int stepStepperPin = 12;
 
@@ -229,6 +230,21 @@ void afficherMessage(String msg, byte ligne = 1, bool erreur = false, int duree 
 }
 
 // ------------------------------------------------------------------------------------
+// GESTION DES EXCEPTIONS
+// ------------------------------------------------------------------------------------
+void exception(String message) {
+  afficherTitre("ERREUR IRRECOUVRABLE");
+  afficherMessage(message, 1, true, TIMEOUT_ERREUR);
+  beep(true);
+  // Arrêter le moteur pour sécurité
+  pontTournant.stop();
+  // Libérer le moteur
+  //digitalWrite(enaStepperPin, HIGHT);
+  // Boucle infinie ou attente intervention
+  while(true) { delay(1000); }
+}
+
+// ------------------------------------------------------------------------------------
 // SAUVEGARDE DE LA VOIE COURANTE EN EEPROM
 // ATTENTION : l'EEPROM est limitée à 100 000 écritures. On ne sauvegarde la voie
 //             courante que si la valeur a changée.
@@ -252,7 +268,9 @@ void sauvegarderVoieCourante() {
 // ------------------------------------------------------------------------------------
 void sauverConfigurationPontTournant() {
   configPT.magic = EEPROM_MAGIC_VALUE;
-  configPT.voieCourante = voieEntree; // problématique lors d'une calibration (à commenter???)
+  // Après une calibration, il vne faudrait réinitialiser la voie courante à voieEntree
+  // à chaque sauvegarde, car cela écrase la position actuelle.
+  //configPT.voieCourante = voieEntree; 
   memcpy(configPT.tabVoie, tabVoie, sizeof(tabVoie));
   EEPROM.put(EEPROM_ADDR_VOIES, configPT);
 }
@@ -654,7 +672,8 @@ int saisirNumeroVoie() {
   effacerLigne(2);
   effacerLigne(3);
   afficherLigne("Voie (1-" + String (NB_MAX_VOIE) + "):",1);
-  lcd.setCursor(0, 2); lcd.print("> ");
+  lcd.setCursor(0, 2); 
+  lcd.print("> ");
 
   while (!JESUS_CHRIST) {
 
@@ -689,7 +708,7 @@ int saisirNumeroVoie() {
       }
 
       // Si le numéro de voie n'est pas conforme alors boucler
-      // ===> TRAITER LA VOIE DE GARAGE = 0
+      // ===> TRAITER LA VOIE DE GARAGE = 0 avec if (voie < 0 ?????
       int voie = saisie.toInt();
       if (voie < 1 || voie > NB_MAX_VOIE) {
         String message = "Voie invalide (1-" + String(NB_MAX_VOIE) + ")";
@@ -849,6 +868,9 @@ void setup() {
   lcd.backlight();
   afficherTitre("PONT TOURNANT");
   afficherMessage("   Version: " + String(VERSION), 2, false, TIMEOUT_MSG);
+
+  pinMode(enaStepperPin, OUTPUT);
+  digitalWrite(enaStepperPin, LOW);
 
   pontTournant.setMaxSpeed(SPEED_NORMAL);
   pontTournant.setAcceleration(ACCEL_NORMAL);
