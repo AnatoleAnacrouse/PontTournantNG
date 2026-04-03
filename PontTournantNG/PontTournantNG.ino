@@ -1,9 +1,9 @@
 // ====================================================================================
 //                         PONT TOURNANT NOUVELLE GÉNÉRATION
 // ====================================================================================
-#define VERSION   "V0.7"
+#define VERSION   "V0.8"
 // Auteur  : M. EPARDEAU et F. FRANKE
-// Date    : 2 avril 2026
+// Date    : 3 avril 2026
 // Projet  : Contrôle d’un pont tournant motorisé pour maquette ferroviaire :
 //           - Permet de déplacer une locomotive entre une voie d’entrée et une voie 
 //             du dépôt, avec ou sans retournement, via un pont tournant motorisé.
@@ -22,7 +22,7 @@
 // CONFIGURATION
 // - Arduino ou compatible
 // - Moteur pas à pas : 400 pas/tour, piloté via un driver moteur A4988, 
-//                      pins Step (12), Dir (11), ENA est laissée libre
+//                      pins Step (12), Dir (11), ENA (10)
 // - Capteur Hall     : pin A0 pour détection position zéro (pull-up interne activé)
 // - LCD I2C 20 x 4   : adresse 0x27, 20x4, pins SDA (A4), SCL (A5)
 // - Clavier 4x4      : lignes (9,8,7,6), colonnes (5,4,3,2)
@@ -65,7 +65,7 @@
 // ------------------------------------------------------------------------------------
 // CONSTANTES DE DUREE MAX DU HOMING
 // ------------------------------------------------------------------------------------
-#define DELAY_WATCHDOG   10000 // 10 000 ms = 10 secondes
+#define DELAY_WATCHDOG  10000 // 10 000 ms = 10 secondes
 
 // ------------------------------------------------------------------------------------
 // CAPTEUR HALL & BUZZER
@@ -163,7 +163,8 @@ enum TypeManoeuvre {
   MANOEUVRE_SORTIE      = 1,
   MANOEUVRE_TRANSFERT   = 2,
   MANOEUVRE_MAINTENANCE = 3,
-  MANOEUVRE_CALIBRATION = 4
+  MANOEUVRE_CALIBRATION = 4,
+  ARRET                 = 5
 };
 
 // ------------------------------------------------------------------------------------
@@ -232,15 +233,19 @@ void afficherMessage(String msg, byte ligne = 1, bool erreur = false, int duree 
 // ------------------------------------------------------------------------------------
 // GESTION DES EXCEPTIONS
 // ------------------------------------------------------------------------------------
-void exception(String message) {
+void exception(String message = "") {
+
+  // Avertir l'opérateur
+  lcd.clear(); 
   afficherTitre("ERREUR IRRECOUVRABLE");
-  afficherMessage(message, 1, true, TIMEOUT_ERREUR);
+  afficherMessage(message, 3, true, TIMEOUT_ERREUR);
   beep(true);
-  // Arrêter le moteur pour sécurité
+  
+  // Arrêter et libérer le moteur à pas
   pontTournant.stop();
-  // Libérer le moteur
-  //digitalWrite(enaStepperPin, HIGHT);
-  // Boucle infinie ou attente intervention
+  //digitalWrite(enaStepperPin, HIGH);
+
+  // Boucler en attendant une intervention
   while(true) { delay(1000); }
 }
 
@@ -251,9 +256,8 @@ void exception(String message) {
 // ------------------------------------------------------------------------------------
 void sauvegarderVoieCourante() {
 
-  int voieEE;
-
   // Lire la voie courante en EEPROM
+  int voieEE;
   EEPROM.get(EEPROM_ADDR_VOIE_COURANTE, voieEE);
 
   // Si la voie courante est différente de la voie en EEPROM
@@ -268,9 +272,6 @@ void sauvegarderVoieCourante() {
 // ------------------------------------------------------------------------------------
 void sauverConfigurationPontTournant() {
   configPT.magic = EEPROM_MAGIC_VALUE;
-  // Après une calibration, il vne faudrait réinitialiser la voie courante à voieEntree
-  // à chaque sauvegarde, car cela écrase la position actuelle.
-  //configPT.voieCourante = voieEntree; 
   memcpy(configPT.tabVoie, tabVoie, sizeof(tabVoie));
   EEPROM.put(EEPROM_ADDR_VOIES, configPT);
 }
@@ -565,9 +566,9 @@ int manoeuvrerPontTournant(const int versVoie, const int retournement) {
 // ------------------------------------------------------------------------------------
 int saisirTypeManoeuvre() {
 
-  const int nbManoeuvres = 5;
+  const int nbManoeuvres = 6;
   const char* manoeuvres[] = {
-    "Entree", "Sortie", "Transfert", "Maintenance", "Calibration" 
+    "Entree", "Sortie", "Transfert", "Maintenance", "Calibration", "Arret" 
   };
 
   char touche = '\0';
@@ -972,11 +973,20 @@ void loop() {
       modeCalibration();
       return;
 
-    // EXCEPTION "Cas non prévu"
+    // Arretter proporement le pont
+    case ARRET:
+      afficherTitre("== ARRET ==");
+      sauverConfigurationPontTournant();
+      // Arrêter et libérer le moteur à pas
+      pontTournant.stop();
+      //digitalWrite(enaStepperPin, HIGH);
+      // Boucler en attendant un redémarrage
+      while(true) { delay(1000); }
+      return;
+
+    // EXCEPTION
     default:
-      lcd.clear();
-      afficherMessage("ERREUR GRAVE", 3, true, TIMEOUT_ERREUR);
-      beep(true);
+      exception("COMMANDE INCONNUE");
   }
 
   // Finaliser la manoeuvre
