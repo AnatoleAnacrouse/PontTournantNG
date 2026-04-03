@@ -1,6 +1,6 @@
 # Projet de Pont Tournant Ferroviaire Nouvelle Génération
 
-## Objectifs du projet
+## 🎯 Objectifs du projet
 
 Ce projet a pour objectif de contrôler une maquette de **pont tournant ferroviaire** automatisé et motorisé.
 Il permet de déplacer une locomotive entre une voie d’entrée et plusieurs voies de dépôt dans une maquette ferroviaire.
@@ -15,7 +15,7 @@ Le contrôle s’effectue avec un **Arduino**, un moteur pas à pas, un capteur 
 
 ## 📖 Caractéristiques principales
 
-* 🎯 **40 voies** configurables et étalonnables
+* 📡 **40 voies** configurables et étalonnables
 * 🏠 **Fonction de homing** pour retrouver la position de référence
 * 🔄 **Optimisation des trajets** recherche du plus court chemin
 * 💾 **Sauvegarde en EEPROM** des positions et de la voie courante en EEPROM avec contrôle d’intégrité
