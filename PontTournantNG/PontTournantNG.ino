@@ -110,9 +110,9 @@ Keypad keypad = Keypad(makeKeymap(kpKeys), rowKpPin, colKpPin, ROWS, COLS);
 // le moteur vont chauffer. Il est donc impératif de régler correctement le courant 
 // via le potentiomètre du driver A4988 à la valeur minimale.
 // ------------------------------------------------------------------------------------
-const int enaStepperPin  = 10;
-const int dirStepperPin  = 11;
-const int stepStepperPin = 12;
+const byte enaStepperPin  = 10;
+const byte dirStepperPin  = 11;
+const byte stepStepperPin = 12;
 
 AccelStepper pontTournant(AccelStepper::DRIVER, stepStepperPin, dirStepperPin);
 
@@ -130,7 +130,7 @@ const int tabVoie[NB_MAX_VOIE + 1] = {
   310, 320, 330, 340, 350, 360, 370, 380, 390, 400
 };
 
-const byte voieEntree = 0;
+const int voieEntree = 0;
 const int stepsPerRevolution = 400;
 
 // ------------------------------------------------------------------------------------
@@ -147,7 +147,7 @@ const int stepsPerRevolution = 400;
 // CONFIGURATION DU PONT
 // ------------------------------------------------------------------------------------
 struct ConfigurationPontTournant {
-  byte magic;
+  int magic;
   int tabVoie[NB_MAX_VOIE + 1];
   int voieCourante;
 };
@@ -237,7 +237,7 @@ void exception(String message = "") {
 
   // Avertir l'opérateur
   lcd.clear(); 
-  afficherTitre("ERREUR IRRECOUVRABLE");
+  afficherTitre(F("ERREUR IRRECOUVRABLE"));
   afficherMessage(message, 3, true, TIMEOUT_ERREUR);
   beep(true);
   
@@ -272,7 +272,6 @@ void sauvegarderVoieCourante() {
 // ------------------------------------------------------------------------------------
 void sauverConfigurationPontTournant() {
   configPT.magic = EEPROM_MAGIC_VALUE;
-  memcpy(configPT.tabVoie, tabVoie, sizeof(tabVoie));
   EEPROM.put(EEPROM_ADDR_VOIES, configPT);
 }
 
@@ -288,16 +287,18 @@ void chargerEEPROM() {
 
   // Si la configuration n'est pas présente ou est incorrecte
   if (configPT.magic != EEPROM_MAGIC_VALUE) {
-    afficherTitre("Init EEPROM...");
+    afficherTitre(F("Init EEPROM..."));
     // Initialiser la configuration dans l'EEPROM
+    configPT.voieCourante = voieEntree;
+    memcpy(configPT.tabVoie, tabVoie, sizeof(tabVoie));
     sauverConfigurationPontTournant();
     // Afficher un message de confirmation sur l'écran LCD
-    afficherMessage("Valeurs defaut OK", 3, false, TIMEOUT_MSG);
+    afficherMessage(F("Valeurs defaut OK"), 3, false, TIMEOUT_MSG);
     return; 
   }
   
   // Vérifier la configuration en EEPROM
-  afficherTitre("Verif EEPROM...");
+  afficherTitre(F("Verif EEPROM..."));
 
   // Vérifier que les données des voies sont dans la plage autorisée
   bool valide = true;
@@ -318,10 +319,10 @@ void chargerEEPROM() {
   // Si l'EEPROM est corrompue 
   if (!valide) {
     // Prévenir l'opérateur
-    afficherMessage("EEPROM invalide !", 3, true, TIMEOUT_ERREUR);
+    afficherMessage(F("EEPROM invalide !"), 3, true, TIMEOUT_ERREUR);
     // Réinitialiser l'EEPROM
     sauverConfigurationPontTournant();
-    afficherMessage("EEPROM reinitialisée", 3, true, TIMEOUT_MSG);
+    afficherMessage(F("EEPROM reinitialisée"), 3, true, TIMEOUT_MSG);
   }
 }
 
@@ -359,7 +360,7 @@ void diagnostic() {
   char touche = '\0';
   bool entreeValide = false;
 
-  afficherTitre("== DIAGNOSTIC == ");
+  afficherTitre(F("== DIAGNOSTIC == "));
 
  // Afficher les infos de diagnostic
  String message = "Hall:" + String((digitalRead(hallPin) == LOW ? "ACTIF" : "Libre"))
@@ -369,7 +370,7 @@ void diagnostic() {
           + " Voie:"
           + (configPT.voieCourante == 0 ? "entree" : String(configPT.voieCourante));
   afficherLigne(message, 2);
-  afficherLigne("V ou E: Quitter", 3);
+  afficherLigne(F("V ou E: Quitter"), 3);
 
   // Attendre la réponse de l'opérateur
   do {
@@ -379,11 +380,11 @@ void diagnostic() {
 }
 
 // ------------------------------------------------------------------------------------
-// HOMING
+// RECRCHE DE LA VOIE DE SORTIE
 // ------------------------------------------------------------------------------------
 void homing() {
 
-  afficherLigne("Recherche origine...", 2);
+  afficherLigne(F("Recherche origine..."), 2);
   effacerLigne(3);
 
   // Réduire vitesse et accélération
@@ -413,13 +414,11 @@ void homing() {
     // Et sauvegarder la configuration en EEPROM
     sauvegarderVoieCourante();
     // Informer l'opérateur du succès 
-    afficherMessage("Origine OK", 3, false, TIMEOUT_MSG);
-    //afficherLigne("Origine OK", 3);
+    afficherMessage(F("Origine OK"), 3, false, TIMEOUT_MSG);
   }
   else { // Informer l'opérateur de l'echec 
-    afficherMessage("ECHEC: origine NOK  ", 3, true, TIMEOUT_ERREUR);
+    afficherMessage(F("ECHEC: origine NOK  "), 3, true, TIMEOUT_ERREUR);
   }
-  delay(2*TIMEOUT_MSG);
 
   // Restituer vitesse et accélération
   pontTournant.setMaxSpeed(SPEED_NORMAL);
@@ -432,8 +431,8 @@ void homing() {
 void proposerHoming() {
 
   // Afficher le menu de homing
-  afficherTitre("== HOMING == ");
-  afficherLigne("V: Oui E: Non", 3);
+  afficherTitre(F("== HOMING == "));
+  afficherLigne(F("V: Oui E: Non"), 3);
 
   // Attendre la réponse de l'opérateur
   char touche = '\0';
@@ -532,18 +531,18 @@ void deplacerPontTournant(long cible) {
 // ------------------------------------------------------------------------------------
 // REALISER UNE MANOEUVRE D'ENTREE OU DE SORTIE DU PONT TOURNANT
 // ------------------------------------------------------------------------------------
-int manoeuvrerPontTournant(const int versVoie, const int retournement) {
+int manoeuvrerPontTournant(const int versVoie, const byte retournement) {
 
   int voieCible = versVoie;
 
   // Si retournement alors choisir la voie d'en face
-  if (retournement) voieCible = voieOpposee(voieCible);
+  if (retournement) { voieCible = voieOpposee(voieCible); }
 
   // Si on est deja sur la voie  alors ne rien faire
-  if (voieCible == configPT.voieCourante) return OK;
+  if (voieCible == configPT.voieCourante) { return OK; }
 
   // Mettre à jour l'affichage
-  afficherLigne("Rotation...", 1);
+  afficherLigne(F("Rotation..."), 1);
 
   // Normaliser si necessaire
   int posActuelle = normaliserPosition();
@@ -659,6 +658,7 @@ int saisirTypeManoeuvre() {
       return ABANDON;
     }
   }
+  return ABANDON; // Robustesse
 }
 
 // ------------------------------------------------------------------------------------
@@ -727,6 +727,7 @@ int saisirNumeroVoie() {
     // Sinon abandonner
     else if (touche == 'E') return ABANDON;
   }
+  return ABANDON; // Robustesse
 }
 
 // ------------------------------------------------------------------------------------
@@ -738,12 +739,12 @@ int demanderRetournement() {
 
   char touche = '\0';
   bool entreeValide = false;
-  byte selection = 0;
+  int selection = 0;
 
   // Afficher le message de saisie du retournement
   effacerLigne(2);
   effacerLigne(3);
-  afficherLigne("Retournement:       ", 1);
+  afficherLigne(F("Retournement:       "), 1);
 
   while (!JESUS_CHRIST) {
 
@@ -782,10 +783,10 @@ void modeMaintenance() {
 
     // Afficher le menu
     message = "Offset:" + String(pontTournant.currentPosition())
-            + ((digitalRead(hallPin) == LOW) ? " Hall ACTIF" : " Hall libre");
+            + ((digitalRead(hallPin) == LOW) ? F(" Hall ACTIF") : F(" Hall libre"));
     afficherLigne(message, 1);
-    afficherLigne("U/D: +/-10 R/L:+/-1" , 2);
-    afficherLigne("E: Quitter", 3);      
+    afficherLigne(F("U/D: +/-10 R/L:+/-1") , 2);
+    afficherLigne(F("E: Quitter"), 3);      
 
     // Attendre la réponse de l'opérateur
     do {
@@ -806,7 +807,6 @@ void modeMaintenance() {
 
     // Déplacer le pont
     pontTournant.runToPosition();
-    //delay(100);
   }
 }
 
@@ -817,7 +817,7 @@ void modeCalibration() {
 
   char touche = '\0';
   bool entreeValide = false;
-  byte voie = voieEntree;
+  int voie = voieEntree;
   String message = "";
 
   while (!JESUS_CHRIST) {
@@ -825,8 +825,8 @@ void modeCalibration() {
     // Afficher le menu
     message = "Voie:" + String(voie) + " Offset:" + String(configPT.tabVoie[voie]);
     afficherLigne(message, 1);
-    afficherLigne("Voie: R/L Offset:U/D", 2);
-    afficherLigne("V:Valider E:Quitter", 3);
+    afficherLigne(F("Voie: R/L Offset:U/D"), 2);
+    afficherLigne(F("V:Valider E:Quitter"), 3);
 
 
     // Attendre la réponse de l'opérateur
@@ -845,11 +845,11 @@ void modeCalibration() {
     if (touche == 'U') configPT.tabVoie[voie]++;
     if (touche == 'D') configPT.tabVoie[voie]--;
     if (touche == 'R' && voie < NB_MAX_VOIE) voie++;
-    if (touche == 'L' && voie > 1)           voie--;
+    if (touche == 'L' && voie > 0)           voie--;
     // Procéder à la calibration
     if (touche == 'V') {
       sauverConfigurationPontTournant();
-      afficherMessage("Sauvegarde OK", 3, false, TIMEOUT_SAUVEGARDE);
+      afficherMessage(F("Sauvegarde OK"), 3, false, TIMEOUT_SAUVEGARDE);
       return;
     }
   }
@@ -867,7 +867,7 @@ void setup() {
 
   lcd.init();
   lcd.backlight();
-  afficherTitre("PONT TOURNANT");
+  afficherTitre(F("PONT TOURNANT"));
   afficherMessage("   Version: " + String(VERSION), 2, false, TIMEOUT_MSG);
 
   pinMode(enaStepperPin, OUTPUT);
@@ -900,7 +900,7 @@ void loop() {
 
     // Amener une locomotive depuis la voie d’entrée vers une voie du dépôt.
     case MANOEUVRE_ENTREE:
-      afficherTitre("== ENTREE ==");
+      afficherTitre(F("== ENTREE =="));
 
       // Aller sur la voie d'entrée
       if (configPT.voieCourante != voieEntree) {
@@ -921,7 +921,7 @@ void loop() {
 
     // Amener une locomotive d'une voie du dépôt vers la voie d’entrée
     case MANOEUVRE_SORTIE:
-      afficherTitre("== SORTIE ==");
+      afficherTitre(F("== SORTIE =="));
 
       // Selectionner la voie de garage
       voieSelectionnee = saisirNumeroVoie();
@@ -940,7 +940,7 @@ void loop() {
 
     // Amener une locomotive d'une voie du dépôt vers une autre voie du dépôt 
     case MANOEUVRE_TRANSFERT:
-      afficherTitre("== TRANSFERT ==");
+      afficherTitre(F("== TRANSFERT =="));
 
       // Selectionner la voie de garage source    
       voieSelectionnee = saisirNumeroVoie();
@@ -963,32 +963,32 @@ void loop() {
 
     // Déplacer le pont manuellement par pas unitaire ou de dix
     case MANOEUVRE_MAINTENANCE:
-      afficherTitre("== MAINTENANCE ==");
+      afficherTitre(F("== MAINTENANCE =="));
       modeMaintenance();
       return;
 
     // Ajuster la position de chaque voie et mettre à jour l'EEPROM
     case MANOEUVRE_CALIBRATION:
-      afficherTitre("== CALIBRATION ==");
+      afficherTitre(F("== CALIBRATION =="));
       modeCalibration();
       return;
 
     // Arretter proporement le pont
     case ARRET:
-      afficherTitre("== ARRET ==");
+      afficherTitre(F("== ARRET =="));
       sauverConfigurationPontTournant();
+      afficherMessage(F("Config. sauvegardée "), 3, false, TIMEOUT_MSG);
       // Arrêter et libérer le moteur à pas
       pontTournant.stop();
       //digitalWrite(enaStepperPin, HIGH);
       // Boucler en attendant un redémarrage
       while(true) { delay(1000); }
-      return;
 
     // EXCEPTION
     default:
-      exception("COMMANDE INCONNUE");
+      exception(F("COMMANDE INCONNUE"));
   }
 
   // Finaliser la manoeuvre
-  afficherMessage("Manoeuvre OK", 3, false, TIMEOUT_MSG);
+  afficherMessage(F("Manoeuvre OK"), 3, false, TIMEOUT_MSG);
 }
