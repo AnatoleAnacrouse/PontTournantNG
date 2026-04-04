@@ -147,7 +147,7 @@ const int stepsPerRevolution = 400;
 // CONFIGURATION DU PONT
 // ------------------------------------------------------------------------------------
 struct ConfigurationPontTournant {
-  int magic;
+  byte magic;
   int tabVoie[NB_MAX_VOIE + 1];
   int voieCourante;
 };
@@ -155,8 +155,7 @@ struct ConfigurationPontTournant {
 ConfigurationPontTournant configPT;
 
 // ------------------------------------------------------------------------------------
-// ENUM MENU PRINCIPAL
-// Évite les magic numbers dans loop()
+// ENUM DES DIFFERENTS ITEMS DU MENU PRINCIPAL
 // ------------------------------------------------------------------------------------
 enum TypeManoeuvre {
   MANOEUVRE_ENTREE      = 0,
@@ -292,7 +291,7 @@ void chargerEEPROM() {
     configPT.voieCourante = voieEntree;
     memcpy(configPT.tabVoie, tabVoie, sizeof(tabVoie));
     sauverConfigurationPontTournant();
-    // Afficher un message de confirmation sur l'écran LCD
+    // Prévenir l'opéreateur
     afficherMessage(F("Valeurs defaut OK"), 3, false, TIMEOUT_MSG);
     return; 
   }
@@ -320,8 +319,11 @@ void chargerEEPROM() {
   if (!valide) {
     // Prévenir l'opérateur
     afficherMessage(F("EEPROM invalide !"), 3, true, TIMEOUT_ERREUR);
-    // Réinitialiser l'EEPROM
+    // Réinitialiser la configuration dans l'EEPROM
+    configPT.voieCourante = voieEntree;
+    memcpy(configPT.tabVoie, tabVoie, sizeof(tabVoie));  // recharger les défauts
     sauverConfigurationPontTournant();
+    // Prévenir l'opéreateur
     afficherMessage(F("EEPROM reinitialisée"), 3, true, TIMEOUT_MSG);
   }
 }
@@ -658,7 +660,7 @@ int saisirTypeManoeuvre() {
       return ABANDON;
     }
   }
-  return ABANDON; // Robustesse
+  //return ABANDON; // Robustesse
 }
 
 // ------------------------------------------------------------------------------------
@@ -727,7 +729,7 @@ int saisirNumeroVoie() {
     // Sinon abandonner
     else if (touche == 'E') return ABANDON;
   }
-  return ABANDON; // Robustesse
+  //return ABANDON; // Robustesse
 }
 
 // ------------------------------------------------------------------------------------
@@ -768,6 +770,7 @@ int demanderRetournement() {
     if (touche == 'V') return selection;
     if (touche == 'E') return ABANDON;
   }
+  //return ABANDON; // Robustesse
 }
 
 // ------------------------------------------------------------------------------------
@@ -783,7 +786,7 @@ void modeMaintenance() {
 
     // Afficher le menu
     message = "Offset:" + String(pontTournant.currentPosition())
-            + ((digitalRead(hallPin) == LOW) ? F(" Hall ACTIF") : F(" Hall libre"));
+            + ((digitalRead(hallPin) == LOW) ? " Hall ACTIF" : " Hall libre");
     afficherLigne(message, 1);
     afficherLigne(F("U/D: +/-10 R/L:+/-1") , 2);
     afficherLigne(F("E: Quitter"), 3);      
