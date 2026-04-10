@@ -29,8 +29,6 @@
 // - Buzzer           : pin 13
 // - EEPROM           : pour la sauvegarde des positions des voies 
 //                      et de la voie courante
-// essai modif avec Fred
-// deuxiemme essai pour le Pull
 // ====================================================================================
 
 // ------------------------------------------------------------------------------------
