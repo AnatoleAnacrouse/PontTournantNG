@@ -3,7 +3,7 @@
 // ====================================================================================
 // Auteur  : M. EPARDEAU et F. FRANKE
 // Date    : 12 avril 2026
-//Version : Cf. define ci dessous
+// Version : Cf. define ci dessous
 // Projet  : Contrôle d’un pont tournant motorisé pour maquette ferroviaire :
 //           - Permet de déplacer une locomotive entre une voie d’entrée et une voie
 //             du dépôt, avec ou sans retournement, via un pont tournant motorisé.
