@@ -131,9 +131,9 @@ Déplacement d'une locomotive d'une voie du dépôt vers une autre voie.
 **Séquence :**
 
 1. Saisie de la voie origine (voie 1-40)
-2. Choix du retournement (Oui/Non)
-3. Déplacement vers la voie origine
-4. Saisie de la voie destination (voie 1-40)
+2.  Déplacement vers la voie origine
+3. Saisie de la voie destination (voie 1-40)
+4. Choix du retournement (Oui/Non)
 5. Déplacement vers la voie destination
 
 ```
