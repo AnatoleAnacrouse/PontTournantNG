@@ -2,7 +2,7 @@
 //                         PONT TOURNANT NOUVELLE GÉNÉRATION
 // ====================================================================================
 // Auteur  : M. EPARDEAU et F. FRANKE
-// Date    : 12 avril 2026
+// Date    : 13 avril 2026
 // Version : Cf. define ci dessous
 // Projet  : Contrôle d’un pont tournant motorisé pour maquette ferroviaire :
 //           - Permet de déplacer une locomotive entre une voie d’entrée et une voie
@@ -32,19 +32,29 @@
 // ====================================================================================
 
 // ------------------------------------------------------------------------------------
+// CONFIGURATION MATERIEL
+// A commenter si keypad non I2C
+// ------------------------------------------------------------------------------------
+//#define KEYPAD_I2C
+
+// ------------------------------------------------------------------------------------
 // LIBRAIRIES
 // ------------------------------------------------------------------------------------
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
-#include <Keypad.h>
-#include <Keypad_I2C.h>
 #include <AccelStepper.h>
 #include <EEPROM.h>
+
+#ifdef KEYPAD_I2C
+  #include <Keypad_I2C.h>
+#else
+  #include <Keypad.h>
+#endif
 
 // ------------------------------------------------------------------------------------
 // CONFIGURATION GÉNÉRALE
 // ------------------------------------------------------------------------------------
-#define VERSION        "V0.9"
+#define VERSION        "V0.10"
 #define JESUS_CHRIST   false
 #define OK             0
 #define ABANDON       -1
@@ -78,8 +88,8 @@ byte capteurOrigineBroche = 3;
 byte ledHoming = 4;
 byte BPInitPosition = 5;                // en prevision RAZ à la demande
 byte buzzerPin = 6;
-const unsigned long tpsClignot = 700;          // Durée du clignotement
-const unsigned long tpsOnOff = 700;            // Clignotement LED prise origine
+const unsigned long tpsClignot = 700;   // Durée du clignotement
+const unsigned long tpsOnOff = 700;     // Clignotement LED prise origine
 
 // ------------------------------------------------------------------------------------
 // LCD I2C 20x4
@@ -104,11 +114,17 @@ const char touches[ROWS][COLS] = {
   {'L', '0', 'R', 'V'}
 };
 
-byte rowKpPins [ROWS] = {0, 1, 2, 3};     // broches du PCF8574
-byte colKpPins [COLS] = {4, 5, 6, 7};     // broches du PCF8574
-TwoWire *jwire = &Wire;                 // test balayage pointeur bibliothèque clavier
+#ifdef KEYPAD_I2C
+  byte rowKpPins [ROWS] = {0, 1, 2, 3};   // broches du PCF8574
+  byte colKpPins [COLS] = {4, 5, 6, 7};   // broches du PCF8574
 
-Keypad_I2C clavier4x4 = Keypad_I2C(makeKeymap(touches), rowKpPins, colKpPins, ROWS, COLS, I2CADDR, PCF8574, jwire);
+  TwoWire *jwire = &Wire;                 // test balayage pointeur bibliothèque clavier
+  Keypad_I2C clavier4x4 = Keypad_I2C(makeKeymap(touches), rowKpPins, colKpPins, ROWS, COLS, I2CADDR, PCF8574, jwire);
+#else
+  byte rowKpPins[ROWS] = {9, 8, 7, 6};
+  byte colKpPins[COLS] = {5, 4, 3, 2};
+  Keypad clavier4x4 = Keypad(makeKeymap(touches), rowKpPins, colKpPins, ROWS, COLS);
+#endif
 
 // ------------------------------------------------------------------------------------
 // MOTEUR PAS À PAS PILOTE VIA LE DRIVER A4988
@@ -118,9 +134,15 @@ Keypad_I2C clavier4x4 = Keypad_I2C(makeKeymap(touches), rowKpPins, colKpPins, RO
 // le moteur vont chauffer. Il est donc impératif de régler correctement le courant
 // via le potentiomètre du driver A4988 à la valeur minimale.
 // ------------------------------------------------------------------------------------
-byte enableStepperPin = 9;
-byte stepStepperPin = 10;
-byte dirStepperPin  = 11;
+#ifdef KEYPAD_I2C
+  byte enableStepperPin = 9;
+  byte stepStepperPin = 10;
+  byte dirStepperPin  = 11;
+#else
+  const byte enableStepperPin = 10;
+  const byte dirStepperPin    = 11;
+  const byte stepStepperPin   = 12;
+#endif
 
 AccelStepper pontTournant(AccelStepper::DRIVER, stepStepperPin, dirStepperPin);
 
@@ -129,18 +151,6 @@ AccelStepper pontTournant(AccelStepper::DRIVER, stepStepperPin, dirStepperPin);
 // Chargées / écrasées depuis EEPROM au démarrage
 // ------------------------------------------------------------------------------------
 #define NB_MAX_VOIE 40
-
-/*
-  // postion voies en pas, transmission 1/1 et driver A4988 en full pas (1/1)
-  // Modifier stepsPerRevolution en consequence et ajuster vitesse et accélération/décéleration
-  const int tabVoie[NB_MAX_VOIE + 1] = {
-  0,
-  10,  20,  30,  40,  50,  60,  70,  80,  90, 100,
-  110, 120, 130, 140, 150, 160, 170, 180, 190, 200,
-  210, 220, 230, 240, 250, 260, 270, 280, 290, 300,
-  310, 320, 330, 340, 350, 360, 370, 380, 390, 400
-  };
-*/
 
 /*
   // postion voies en pas, transmission 1/3 et driver A4988 en full pas (1/1)
@@ -167,7 +177,7 @@ AccelStepper pontTournant(AccelStepper::DRIVER, stepStepperPin, dirStepperPin);
   };
 */
 
-
+#ifdef KEYPAD_I2C
 // FONCTIONNE avec PT PECO
 // Moteur PAP 400 pas, reduction 1/3, A4988 en 1/1 pas
 // mettre const int stepsPerRevolution = 9600;
@@ -179,9 +189,21 @@ const int tabVoie[NB_MAX_VOIE + 1] = {
   7200, 7440, 7680, 7920, 8160, 8400, 8640, 8880, 9120, 9360, 9600
 };
 
+const int stepsPerRevolution = 9600;
+
+#else
+  const int tabVoie[NB_MAX_VOIE + 1] = {
+  0,
+  10,  20,  30,  40,  50,  60,  70,  80,  90, 100,
+  110, 120, 130, 140, 150, 160, 170, 180, 190, 200,
+  210, 220, 230, 240, 250, 260, 270, 280, 290, 300,
+  310, 320, 330, 340, 350, 360, 370, 380, 390, 400
+  };
+
+const int stepsPerRevolution = 400;
+#endif
 
 const int voieEntree = 0;
-const int stepsPerRevolution = 9600;
 
 // ------------------------------------------------------------------------------------
 // ADRESSES EEPROM
@@ -300,11 +322,12 @@ void exception(String message = "")
   afficherMessage(message, 3, true, TIMEOUT_ERREUR);
   beep(true);
 
+  // Arrêter et libérer le moteur à pas
+  pontTournant.stop();       
+  digitalWrite(enableStepperPin, HIGH);
 
-  pontTournant.stop();       // Arrêter et libérer le moteur à pas
-  //digitalWrite(enableStepperPin, HIGH);
-
-  while (true)           // Boucler en attendant une intervention
+// Boucler en attendant une intervention
+  while (true)           
   {
     delay(1000);
   }
@@ -321,7 +344,8 @@ void sauvegarderVoieCourante()
   int voieEE;
   EEPROM.get(EEPROM_ADDR_VOIE_COURANTE, voieEE);
 
-  if (configPT.voieCourante != voieEE)  // Si voie courante est différente voie en EEPROM
+  // Si voie courante est différente voie en EEPROM
+  if (configPT.voieCourante != voieEE) 
   {
     // On ne sauvegarde que s'il y a une différence
     EEPROM.put(EEPROM_ADDR_VOIE_COURANTE, configPT.voieCourante);
@@ -344,26 +368,23 @@ void sauverConfigurationPontTournant()
 // ------------------------------------------------------------------------------------
 void chargerEEPROM()
 {
-  Serial.println(F("Test EEPROM"));
+  // Lire la configuration en EEPROM
+  EEPROM.get(EEPROM_ADDR_VOIES, configPT);
 
-  EEPROM.get(EEPROM_ADDR_VOIES, configPT);       // Lire la configuration en EEPROM
-
-  if (configPT.magic != EEPROM_MAGIC_VALUE)      // Si configuration n'est pas présente ou incorrecte
+  // Si configuration n'est pas présente ou incorrecte
+  if (configPT.magic != EEPROM_MAGIC_VALUE)
   {
-    Serial.println(F("Init EEPROM"));
     afficherTitre(F("Init EEPROM..."));
     // Initialiser la configuration dans l'EEPROM
     configPT.voieCourante = voieEntree;
     memcpy(configPT.tabVoie, tabVoie, sizeof(tabVoie));
     sauverConfigurationPontTournant();
     // Prévenir l'opéreateur
-    afficherMessage(F("Valeurs defaut OK"), 3, false, TIMEOUT_MSG);
+    afficherMessage(F("EEPROM initialisee  "), 3, false, TIMEOUT_MSG);   ///++++++++++
     return;
   }
 
   // Vérifier la configuration en EEPROM
-  Serial.println(F("Verif EEPROM"));
-  delay(3000);
   afficherTitre(F("Verif EEPROM..."));
 
   // Vérifier que les données des voies sont dans la plage autorisée
@@ -382,23 +403,20 @@ void chargerEEPROM()
   {
     if ((configPT.voieCourante  < 0) || (configPT.voieCourante > NB_MAX_VOIE))
     {
-      Serial.println(F("EEPROM valide !"));
       valide = false;
     }
   }
-
 
   // Si l'EEPROM est corrompue
   if (!valide)
   {
     // Prévenir l'opérateur
-    Serial.println(F("EEPROM invalide !"));
     afficherMessage(F("EEPROM invalide !"), 3, true, TIMEOUT_ERREUR);
     // Réinitialiser la configuration dans l'EEPROM
     configPT.voieCourante = voieEntree;
     memcpy(configPT.tabVoie, tabVoie, sizeof(tabVoie));  // recharger les défauts
     sauverConfigurationPontTournant();
-    // Prévenir l'opéreateur
+    // Prévenir l'opérateur
     afficherMessage(F("EEPROM reinitialisee"), 3, true, TIMEOUT_MSG);
   }
 }
@@ -466,16 +484,19 @@ void clignotementLED()
   static unsigned long startms = 0;
   static unsigned long blinkms = 0;
 
-  if (digitalRead(BPInitPosition) == LOW || digitalRead(capteurOrigineBroche) == LOW/*HIGH*/)       //si le bouton est appuyé,
+  //si le bouton est appuyé,
+  if (digitalRead(BPInitPosition) == LOW || digitalRead(capteurOrigineBroche) == LOW/*HIGH*/)
   {
-    startms = millis(); // init time
+    // init time
+    startms = millis();
   }
 
   if (startms && millis() - startms <= tpsClignot)
   {
     if (millis() - blinkms >= tpsOnOff)
     {
-      digitalWrite(ledHoming, !digitalRead(ledHoming)); // inverse état led
+       // inverse état led
+      digitalWrite(ledHoming, !digitalRead(ledHoming));
       blinkms = millis();
     }
   }
@@ -484,7 +505,7 @@ void clignotementLED()
     startms = 0;
     digitalWrite(ledHoming, LOW);
   }
-}     // FIN void clignotementLED()
+} // FIN void clignotementLED()
 
 
 // ------------------------------------------------------------------------------------
@@ -517,16 +538,21 @@ void homing()
   digitalWrite(ledHoming, LOW);
 
 
-  if (digitalRead(capteurOrigineBroche) == HIGH /*LOW*/)     // Si la voie est detectée
+  // Si la voie est detectée
+  if (digitalRead(capteurOrigineBroche) == HIGH /*LOW*/)
   {
-    pontTournant.setCurrentPosition(0);             // Définir la position de la voie d'entrée
+    // Définir la position de la voie d'entrée
+    pontTournant.setCurrentPosition(0);
     configPT.voieCourante = voieEntree;
-    sauvegarderVoieCourante();                      // Sauvegarder la configuration en EEPROM
-    afficherMessage(F("Origine OK"), 3, false, TIMEOUT_MSG);   // Informer l'opérateur du succès
+    // Sauvegarder la configuration en EEPROM
+    sauvegarderVoieCourante();
+    // Informer l'opérateur du succès
+    afficherMessage(F("Origine OK"), 3, false, TIMEOUT_MSG); 
   }
   else
   {
-    afficherMessage(F("ECHEC: origine NOK  "), 3, true, TIMEOUT_ERREUR);  // Informer opérateur de l'echec
+    // Informer opérateur de l'echec
+    afficherMessage(F("ECHEC: origine NOK  "), 3, true, TIMEOUT_ERREUR);
   }
 
   // Restituer vitesse et accélération
@@ -668,7 +694,7 @@ int manoeuvrerPontTournant(const int versVoie, const byte retournement)
   deplacerPontTournant(posActuelle + distance);    // Deplacer le pont
 
   configPT.voieCourante = voieCible;       // Remettre a jour la configuration
-  //sauvegarderVoieCourante();
+  //sauvegarderVoieCourante();   /// +++++++++
 
   return OK;
 }
@@ -987,6 +1013,8 @@ void modeCalibration()
 void setup()
 {
   Serial.begin(9600);
+
+#ifdef KEYPAD_I2C
   jwire->begin( );               // Wire.begin( );
   clavier4x4.begin( );           // clavier4x4.begin( makeKeymap(keys) );
 
@@ -998,6 +1026,12 @@ void setup()
   pinMode(dirStepperPin, OUTPUT);
   pinMode(stepStepperPin, OUTPUT);
   digitalWrite(enableStepperPin, LOW);
+#else
+  pinMode(buzzerPin, OUTPUT);
+  pinMode(capteurOrigineBroche, INPUT_PULLUP);
+  pinMode(enableStepperPin, OUTPUT);
+  digitalWrite(enableStepperPin, LOW);
+#endif
 
   lcd.init();
   lcd.backlight();
