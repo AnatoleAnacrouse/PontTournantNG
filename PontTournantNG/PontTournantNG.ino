@@ -23,10 +23,10 @@
 // - Arduino ou compatible
 // - Moteur pas à pas : 400 pas/tour, piloté via un driver moteur A4988,
 //                      pins Step (12), Dir (11), ENA (10)
-// - Capteur Hall     : pin A0 pour détection position zéro (pull-up interne activé)
+// - Capteur Origine  : broche 3 pour détection position zéro (pull-up interne activé ou pas selon capteur))
 // - LCD I2C 20 x 4   : adresse 0x27, 20x4, pins SDA (A4), SCL (A5)
 // - Clavier 4x4      : lignes (9,8,7,6), colonnes (5,4,3,2)
-// - Buzzer           : pin 13
+// - Buzzer           : broche 6
 // - EEPROM           : pour la sauvegarde des positions des voies
 //                      et de la voie courante
 // ====================================================================================
@@ -46,9 +46,9 @@
 #include <EEPROM.h>
 
 #ifdef KEYPAD_I2C
-  #include <Keypad_I2C.h>
+#include <Keypad_I2C.h>
 #else
-  #include <Keypad.h>
+#include <Keypad.h>
 #endif
 
 // ------------------------------------------------------------------------------------
@@ -81,7 +81,7 @@
 #define DELAY_WATCHDOG  40000 // 10 000 ms = 10 secondes
 
 // ------------------------------------------------------------------------------------
-// CAPTEUR HALL & BUZZER
+// CAPTEUR ORIGINE & BUZZER
 // ------------------------------------------------------------------------------------
 
 byte capteurOrigineBroche = 3;
@@ -115,15 +115,15 @@ const char touches[ROWS][COLS] = {
 };
 
 #ifdef KEYPAD_I2C
-  byte rowKpPins [ROWS] = {0, 1, 2, 3};   // broches du PCF8574
-  byte colKpPins [COLS] = {4, 5, 6, 7};   // broches du PCF8574
+byte rowKpPins [ROWS] = {0, 1, 2, 3};   // broches du PCF8574
+byte colKpPins [COLS] = {4, 5, 6, 7};   // broches du PCF8574
 
-  TwoWire *jwire = &Wire;                 // test balayage pointeur bibliothèque clavier
-  Keypad_I2C clavier4x4 = Keypad_I2C(makeKeymap(touches), rowKpPins, colKpPins, ROWS, COLS, I2CADDR, PCF8574, jwire);
+TwoWire *jwire = &Wire;                 // test balayage pointeur bibliothèque clavier
+Keypad_I2C clavier4x4 = Keypad_I2C(makeKeymap(touches), rowKpPins, colKpPins, ROWS, COLS, I2CADDR, PCF8574, jwire);
 #else
-  byte rowKpPins[ROWS] = {9, 8, 7, 6};
-  byte colKpPins[COLS] = {5, 4, 3, 2};
-  Keypad clavier4x4 = Keypad(makeKeymap(touches), rowKpPins, colKpPins, ROWS, COLS);
+byte rowKpPins[ROWS] = {9, 8, 7, 6};
+byte colKpPins[COLS] = {5, 4, 3, 2};
+Keypad clavier4x4 = Keypad(makeKeymap(touches), rowKpPins, colKpPins, ROWS, COLS);
 #endif
 
 // ------------------------------------------------------------------------------------
@@ -135,13 +135,13 @@ const char touches[ROWS][COLS] = {
 // via le potentiomètre du driver A4988 à la valeur minimale.
 // ------------------------------------------------------------------------------------
 #ifdef KEYPAD_I2C
-  byte enableStepperPin = 9;
-  byte stepStepperPin = 10;
-  byte dirStepperPin  = 11;
+byte enableStepperPin = 9;
+byte stepStepperPin = 10;
+byte dirStepperPin  = 11;
 #else
-  const byte enableStepperPin = 10;
-  const byte dirStepperPin    = 11;
-  const byte stepStepperPin   = 12;
+const byte enableStepperPin = 10;
+const byte dirStepperPin    = 11;
+const byte stepStepperPin   = 12;
 #endif
 
 AccelStepper pontTournant(AccelStepper::DRIVER, stepStepperPin, dirStepperPin);
@@ -192,13 +192,13 @@ const int tabVoie[NB_MAX_VOIE + 1] = {
 const int stepsPerRevolution = 9600;
 
 #else
-  const int tabVoie[NB_MAX_VOIE + 1] = {
+const int tabVoie[NB_MAX_VOIE + 1] = {
   0,
   10,  20,  30,  40,  50,  60,  70,  80,  90, 100,
   110, 120, 130, 140, 150, 160, 170, 180, 190, 200,
   210, 220, 230, 240, 250, 260, 270, 280, 290, 300,
   310, 320, 330, 340, 350, 360, 370, 380, 390, 400
-  };
+};
 
 const int stepsPerRevolution = 400;
 #endif
@@ -323,11 +323,11 @@ void exception(String message = "")
   beep(true);
 
   // Arrêter et libérer le moteur à pas
-  pontTournant.stop();       
+  pontTournant.stop();
   digitalWrite(enableStepperPin, HIGH);
 
-// Boucler en attendant une intervention
-  while (true)           
+  // Boucler en attendant une intervention
+  while (true)
   {
     delay(1000);
   }
@@ -345,7 +345,7 @@ void sauvegarderVoieCourante()
   EEPROM.get(EEPROM_ADDR_VOIE_COURANTE, voieEE);
 
   // Si voie courante est différente voie en EEPROM
-  if (configPT.voieCourante != voieEE) 
+  if (configPT.voieCourante != voieEE)
   {
     // On ne sauvegarde que s'il y a une différence
     EEPROM.put(EEPROM_ADDR_VOIE_COURANTE, configPT.voieCourante);
@@ -495,7 +495,7 @@ void clignotementLED()
   {
     if (millis() - blinkms >= tpsOnOff)
     {
-       // inverse état led
+      // inverse état led
       digitalWrite(ledHoming, !digitalRead(ledHoming));
       blinkms = millis();
     }
@@ -547,7 +547,7 @@ void homing()
     // Sauvegarder la configuration en EEPROM
     sauvegarderVoieCourante();
     // Informer l'opérateur du succès
-    afficherMessage(F("Origine OK"), 3, false, TIMEOUT_MSG); 
+    afficherMessage(F("Origine OK"), 3, false, TIMEOUT_MSG);
   }
   else
   {
@@ -1017,21 +1017,18 @@ void setup()
 #ifdef KEYPAD_I2C
   jwire->begin( );               // Wire.begin( );
   clavier4x4.begin( );           // clavier4x4.begin( makeKeymap(keys) );
+#else
+  delay(10);
+#endif
 
   pinMode(buzzerPin, OUTPUT);
-  pinMode(capteurOrigineBroche, INPUT_PULLUP);
+  pinMode(capteurOrigineBroche, INPUT);
   pinMode(BPInitPosition, INPUT);
   pinMode(ledHoming, OUTPUT);
   pinMode(enableStepperPin, OUTPUT);
   pinMode(dirStepperPin, OUTPUT);
   pinMode(stepStepperPin, OUTPUT);
   digitalWrite(enableStepperPin, LOW);
-#else
-  pinMode(buzzerPin, OUTPUT);
-  pinMode(capteurOrigineBroche, INPUT_PULLUP);
-  pinMode(enableStepperPin, OUTPUT);
-  digitalWrite(enableStepperPin, LOW);
-#endif
 
   lcd.init();
   lcd.backlight();
@@ -1143,7 +1140,7 @@ void loop()
       }
 
       // Aller sur la voie de garage destination
-      manoeuvrerPontTournant(voieSelectionnee, false);
+      manoeuvrerPontTournant(voieSelectionnee, retournementChoisi);
       break;
 
     // Déplacer le pont manuellement par pas unitaire ou de dix
