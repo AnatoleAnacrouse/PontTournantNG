@@ -2,7 +2,7 @@
 //                         PONT TOURNANT NOUVELLE GÉNÉRATION
 // ====================================================================================
 // Auteur  : M. EPARDEAU et F. FRANKE
-// Date    : 13 avril 2026
+// Date    : 20 avril 2026
 // Version : Cf. define ci dessous
 // Projet  : Contrôle d’un pont tournant motorisé pour maquette ferroviaire :
 //           - Permet de déplacer une locomotive entre une voie d’entrée et une voie
@@ -22,10 +22,18 @@
 // CONFIGURATION
 // - Arduino ou compatible
 // - Moteur pas à pas : 400 pas/tour, piloté via un driver moteur A4988,
-//                      pins Step (12), Dir (11), ENA (10)
+//                      pins STEP (12), DIR (11), ENA (10) avec clavier non I2C
+//                      pins STEP (10), DIR (11), ENA (9) avec clavier I2C
 // - Capteur Origine  : broche 3 pour détection position zéro (pull-up interne activé ou pas selon capteur))
 // - LCD I2C 20 x 4   : adresse 0x27, 20x4, pins SDA (A4), SCL (A5)
-// - Clavier 4x4      : lignes (9,8,7,6), colonnes (5,4,3,2)
+// - Clavier 4x4      : non I2C ou I2C
+//                      - cas 1, Non I2C : lignes (9,8,7,6), colonnes (5,4,3,2)
+//                      - cas 2, I2C : utilisation d'un module PCF8574.
+//                          lignes sur broches (0,1,2,3) du PCF8574
+//                          colonnes sur broches (4,5,6,7) du PCF8574
+//                      - cas 3, I2C : utilisation d'un module MCP23017.
+//                          lignes sur broches PA0 à PA3 du DFROBOT MCP23017
+//                          colonnes sur broches PB0 à PB4 du DFROBOT MCP23017
 // - Buzzer           : broche 6
 // - EEPROM           : pour la sauvegarde des positions des voies
 //                      et de la voie courante
@@ -44,21 +52,27 @@
 #include <LiquidCrystal_I2C.h>
 #include <AccelStepper.h>
 #include <EEPROM.h>
+#include <Adafruit_MCP23X17.h>
 
-#ifdef KEYPAD_I2C
-#include <Keypad_I2C.h>
-#else
-#include <Keypad.h>
-#endif
+/*
+  #ifdef KEYPAD_I2C
+  #include <Keypad_I2C.h>
+  #else
+  #include <Keypad.h>
+  #endif
+*/
+
+Adafruit_MCP23X17 mcp1;
 
 // ------------------------------------------------------------------------------------
 // CONFIGURATION GÉNÉRALE
 // ------------------------------------------------------------------------------------
-#define VERSION        "V0.10"
+#define VERSION        "V0.11"
 #define JESUS_CHRIST   false
 #define OK             0
 #define ABANDON       -1
 #define I2CADDR       0x20           // Adresse module PCF8574
+#define I2CADDRmcp1   0x23           // Adresse module MCP23017 N°1
 
 // ------------------------------------------------------------------------------------
 // CONSTANTES MOTEUR
@@ -84,10 +98,10 @@
 // CAPTEUR ORIGINE & BUZZER
 // ------------------------------------------------------------------------------------
 
-const byte capteurOrigineBroche = 3;
-const byte ledHoming = 4;
-const byte BPInitPosition = 5;                // en prevision RAZ à la demande
-const byte buzzerPin = 6;
+//const byte capteurOrigineBroche = 3;
+//const byte ledHoming = 4;
+//const byte BPInitPosition = 5;                // en prevision RAZ à la demande
+//const byte buzzerPin = 6;
 const unsigned long tpsClignot = 700;   // Durée du clignotement
 const unsigned long tpsOnOff = 700;     // Clignotement LED prise origine
 
@@ -96,35 +110,57 @@ const unsigned long tpsOnOff = 700;     // Clignotement LED prise origine
 // ------------------------------------------------------------------------------------
 const byte NB_LIGNE = 4;
 const byte NB_CHAR = 20;
-LiquidCrystal_I2C lcd(0x27, NB_CHAR, NB_LIGNE);
+LiquidCrystal_I2C lcd1(0x27, NB_CHAR, NB_LIGNE);
 
-// ------------------------------------------------------------------------------------
-// KEYPAD 4x4
-// U : Up / avancer               D : Down / reculer
-// L : Left / Déplacer à gauche   R : Right / Déplacer à droite
-// V : Valider                    E : Echap / Annuler
-// ------------------------------------------------------------------------------------
-const byte ROWS = 4;
-const byte COLS = 4;
+/*
+  // ------------------------------------------------------------------------------------
+  // CLAVIER 4x4, 16 touches, 8 broches
+  // U : Up / avancer               D : Down / reculer
+  // L : Left / Déplacer à gauche   R : Right / Déplacer à droite
+  // V : Valider                    E : Echap / Annuler
+  // ------------------------------------------------------------------------------------
+  const byte ROWS_4x4 = 4;
+  const byte COLS_4x4 = 4;
 
-const char touches[ROWS][COLS] = {
+  const char touches_4x4[ROWS_4x4][COLS_4x4] = {
   {'1', '2', '3', 'U'},
   {'4', '5', '6', 'D'},
   {'7', '8', '9', 'E'},
   {'L', '0', 'R', 'V'}
+  };
+*/
+
+
+// ------------------------------------------------------------------------------------
+// CLAVIER 5x4, 20 touches, 9 broches
+// H : Haut / avancer               B : Bas / reculer
+// G : Gauche / Déplacer à gauche   D : Droite / Déplacer à droite
+// V : Valider                      E : Echap / Annuler
+// ------------------------------------------------------------------------------------
+const byte ROWS_5x4 = 4;
+const byte COLS_5x4 = 5;
+
+// Définition des touches (à adapter selon besoins)
+char touches_5x4[ROWS_5x4][COLS_5x4] = {
+  {'*', 'H', 'B', 'E', 'V'},
+  {'#', '3', '6', '9', 'D'},
+  {'Y', '2', '5', '8', '0'},
+  {'X', '1', '4', '7', 'G'}
 };
 
-#ifdef KEYPAD_I2C
-const byte rowKpPins [ROWS] = {0, 1, 2, 3};   // broches du PCF8574
-const byte colKpPins [COLS] = {4, 5, 6, 7};   // broches du PCF8574
+/*
+  #ifdef KEYPAD_I2C
+  const byte rowKpPins [ROWS_4x4] = {0, 1, 2, 3};   // broches du PCF8574
+  const byte colKpPins [COLS_4x4] = {4, 5, 6, 7};   // broches du PCF8574
 
-TwoWire *jwire = &Wire;                 // test balayage pointeur bibliothèque clavier
-Keypad_I2C clavier4x4 = Keypad_I2C(makeKeymap(touches), rowKpPins, colKpPins, ROWS, COLS, I2CADDR, PCF8574, jwire);
-#else
-const byte rowKpPins[ROWS] = {9, 8, 7, 6};
-const byte colKpPins[COLS] = {5, 4, 3, 2};
-Keypad clavier4x4 = Keypad(makeKeymap(touches), rowKpPins, colKpPins, ROWS, COLS);
-#endif
+  TwoWire *jwire = &Wire;                 // test balayage pointeur bibliothèque clavier
+  Keypad_I2C clavier4x4 = Keypad_I2C(makeKeymap(touches_4x4), rowKpPins, colKpPins, ROWS_4x4, COLS_4x4, I2CADDR, PCF8574, jwire);
+  #else
+  const byte rowKpPins[ROWS_4x4] = {9, 8, 7, 6};
+  const byte colKpPins[COLS_4x4] = {5, 4, 3, 2};
+  Keypad clavier4x4 = Keypad(makeKeymap(touches_4x4), rowKpPins, colKpPins, ROWS_4x4, COLS_4x4);
+  #endif
+*/
 
 // ------------------------------------------------------------------------------------
 // MOTEUR PAS À PAS PILOTE VIA LE DRIVER A4988
@@ -134,15 +170,31 @@ Keypad clavier4x4 = Keypad(makeKeymap(touches), rowKpPins, colKpPins, ROWS, COLS
 // le moteur vont chauffer. Il est donc impératif de régler correctement le courant
 // via le potentiomètre du driver A4988 à la valeur minimale.
 // ------------------------------------------------------------------------------------
-#ifdef KEYPAD_I2C
+/*
+  #ifdef KEYPAD_I2C
+  const byte enableStepperPin = 9;
+  const byte stepStepperPin = 10;
+  const byte dirStepperPin  = 11;
+  const byte capteurOrigineBroche = 3;
+  const byte ledHoming = 4;
+  const byte BPInitPosition = 5;                // en prevision RAZ à la demande
+  const byte buzzerPin = 6;
+  #else
+  const byte enableStepperPin = 10;
+  const byte dirStepperPin    = 11;
+  const byte stepStepperPin   = 12;
+  const byte capteurOrigineBroche = A0;
+  const byte buzzerPin = 13;
+  #endif
+*/
+
 const byte enableStepperPin = 9;
 const byte stepStepperPin = 10;
 const byte dirStepperPin  = 11;
-#else
-const byte enableStepperPin = 10;
-const byte dirStepperPin    = 11;
-const byte stepStepperPin   = 12;
-#endif
+const byte capteurOrigineBroche = 3;
+const byte ledHoming = 4;
+const byte BPInitPosition = 5;                // en prevision RAZ à la demande
+const byte buzzerPin = 6;
 
 AccelStepper pontTournant(AccelStepper::DRIVER, stepStepperPin, dirStepperPin);
 
@@ -177,7 +229,32 @@ AccelStepper pontTournant(AccelStepper::DRIVER, stepStepperPin, dirStepperPin);
   };
 */
 
-#ifdef KEYPAD_I2C
+/*
+  #ifdef KEYPAD_I2C
+  // FONCTIONNE avec PT PECO
+  // Moteur PAP 400 pas, reduction 1/3, A4988 en 1/1 pas
+  // mettre const int stepsPerRevolution = 9600;
+  // mettre const int vitesseRotation = 200;
+  const int tabVoie[NB_MAX_VOIE + 1] = {
+  0,  240,  480,  720,  960, 1200, 1440, 1680, 1920, 2160,
+  2400, 2640, 2880, 3120, 3360, 3600, 3840, 4080, 4320, 4560,
+  4800, 5040, 5280, 5520, 5760, 6000, 6240, 6480, 6720, 6960,
+  7200, 7440, 7680, 7920, 8160, 8400, 8640, 8880, 9120, 9360, 9600
+  };
+  const int stepsPerRevolution = 9600;
+
+  #else
+  const int tabVoie[NB_MAX_VOIE + 1] = {
+  0,
+  10,  20,  30,  40,  50,  60,  70,  80,  90, 100,
+  110, 120, 130, 140, 150, 160, 170, 180, 190, 200,
+  210, 220, 230, 240, 250, 260, 270, 280, 290, 300,
+  310, 320, 330, 340, 350, 360, 370, 380, 390, 400
+  };
+  const int stepsPerRevolution = 400;
+  #endif
+*/
+
 // FONCTIONNE avec PT PECO
 // Moteur PAP 400 pas, reduction 1/3, A4988 en 1/1 pas
 // mettre const int stepsPerRevolution = 9600;
@@ -188,21 +265,7 @@ const int tabVoie[NB_MAX_VOIE + 1] = {
   4800, 5040, 5280, 5520, 5760, 6000, 6240, 6480, 6720, 6960,
   7200, 7440, 7680, 7920, 8160, 8400, 8640, 8880, 9120, 9360, 9600
 };
-
 const int stepsPerRevolution = 9600;
-
-#else
-const int tabVoie[NB_MAX_VOIE + 1] = {
-  0,
-  10,  20,  30,  40,  50,  60,  70,  80,  90, 100,
-  110, 120, 130, 140, 150, 160, 170, 180, 190, 200,
-  210, 220, 230, 240, 250, 260, 270, 280, 290, 300,
-  310, 320, 330, 340, 350, 360, 370, 380, 390, 400
-};
-
-const int stepsPerRevolution = 400;
-#endif
-
 const int voieEntree = 0;
 
 // ------------------------------------------------------------------------------------
@@ -249,8 +312,6 @@ void beep(bool error = false)
   {
     //tone(buzzerPin, 500, 400);
     delay(450);
-    //tone(buzzerPin, 500, 400);
-    delay(450);
   }
   else
   {
@@ -260,19 +321,57 @@ void beep(bool error = false)
   //noTone(buzzerPin);
 }
 
+
+// ------------------------------------------------------------------------------------
+// FONCTION DE GESTION DU CLAVIER 5x4 SUR MCP23017
+// ------------------------------------------------------------------------------------
+char obtentionTouche()
+{
+  for (int r = 0; r < ROWS_5x4; r++)
+  {
+    mcp1.digitalWrite(r, LOW);              // On met la ligne actuelle à LOW
+
+    for (int c = 0; c < COLS_5x4; c++)
+    {
+      if (mcp1.digitalRead(c + 8) == LOW)   // Si la colonne est à LOW, la touche est pressée
+      {
+        mcp1.digitalWrite(r, HIGH);         // On remet la ligne à HIGH avant de sortir
+        return touches_5x4[r][c];
+      }
+    }
+    mcp1.digitalWrite(r, HIGH);             // On remet la ligne à HIGH
+  }
+  return '\0';                              // Aucune touche pressée
+}     // FIN char obtentionToucheClavier()
+
+// ------------------------------------------------------------------------------------
+// FONCTION AFFICHAGE TOUCHE CLAVIER 5x4 SUR MCP23017
+// ------------------------------------------------------------------------------------
+void affichageToucheClavier()
+{
+  char touche_5x4 = obtentionTouche();
+
+  if (touche_5x4 != '\0')
+  {
+    Serial.print(F("Touche pressee : "));
+    Serial.println(touche_5x4);
+    delay(100); // Anti-rebond simple, 200 à l'origine
+  }
+}
+
 // ------------------------------------------------------------------------------------
 // FONCTIONS DE GESTION DE L'AFFICHEUR LCD
 // ------------------------------------------------------------------------------------
 void effacerLigne(const byte line)
 {
-  lcd.setCursor(0, line);
-  lcd.print(F("                    "));
+  lcd1.setCursor(0, line);
+  lcd1.print(F("                    "));
 }
 
 // ------------------------------------------------------------------------------------
 void afficherTitre(String titre)
 {
-  lcd.clear();
+  lcd1.clear();
 
   // Calculer le nombre d'espaces à gauche pour centrer
   int espacesGauche = (NB_CHAR - titre.length()) / 2;
@@ -289,24 +388,24 @@ void afficherTitre(String titre)
   while (ligne.length() < (NB_CHAR)) ligne += " ";
 
   // Afficher sur la première ligne (ligne 0)
-  lcd.setCursor(0, 0);
-  lcd.print(ligne);
+  lcd1.setCursor(0, 0);
+  lcd1.print(ligne);
 }
 
 // ------------------------------------------------------------------------------------
 void afficherLigne(String msg, byte ligne = 1)
 {
   effacerLigne(ligne);
-  lcd.setCursor(0, ligne);
-  lcd.print(msg);
+  lcd1.setCursor(0, ligne);
+  lcd1.print(msg);
 }
 
 // ------------------------------------------------------------------------------------
 void afficherMessage(String msg, byte ligne = 1, bool erreur = false, int duree = TIMEOUT_MSG)
 {
   effacerLigne(ligne);
-  lcd.setCursor(0, ligne);
-  lcd.print(msg);
+  lcd1.setCursor(0, ligne);
+  lcd1.print(msg);
   delay(duree);
   beep(erreur);
 }
@@ -317,7 +416,7 @@ void afficherMessage(String msg, byte ligne = 1, bool erreur = false, int duree 
 void exception(String message = "")
 {
   // Avertir l'opérateur
-  lcd.clear();
+  lcd1.clear();
   afficherTitre(F("ERREUR IRRECOUVRABLE"));
   afficherMessage(message, 3, true, TIMEOUT_ERREUR);
   beep(true);
@@ -342,7 +441,7 @@ void sauvegarderVoieCourante()
   // Lire la voie courante en EEPROM
   int voieEE;
   EEPROM.get(EEPROM_ADDR_VOIE_COURANTE, voieEE);
-  
+
   if (configPT.voieCourante != voieEE)        // Si voie courante est différente voie en EEPROM
   {
     // On ne sauvegarde que s'il y a une différence
@@ -427,16 +526,16 @@ inline void afficherProgression(int progress)
   int blocs = int((progress / 100.0) * NB_CHAR);
 
   // Afficher les blocks et effacer le reste de la ligne
-  lcd.setCursor(0, 2);
+  lcd1.setCursor(0, 2);
   for (int i = 0; i < NB_CHAR; i++)
   {
-    lcd.print(i < blocs ? char(255) : ' ');
+    lcd1.print(i < blocs ? char(255) : ' ');
   }
 
   // Afficher le % de progression
-  lcd.setCursor(0, 3);
-  lcd.print(progress);
-  lcd.print("%   ");
+  lcd1.setCursor(0, 3);
+  lcd1.print(progress);
+  lcd1.print("%   ");
 }
 
 // ------------------------------------------------------------------------------------
@@ -444,7 +543,8 @@ inline void afficherProgression(int progress)
 // ------------------------------------------------------------------------------------
 void diagnostic()
 {
-  char touche = '\0';
+  //char touche_4x4 = '\0';
+  char touche_5x4 = '\0';
   bool entreeValide = false;
 
   afficherTitre(F("== DIAGNOSTIC == "));
@@ -461,8 +561,10 @@ void diagnostic()
 
   // Attendre la réponse de l'opérateur
   do {
-    touche = clavier4x4.getKey();
-    entreeValide = ((touche == 'V') || (touche == 'E'));
+    //touche_4x4 = clavier4x4.getKey();
+    touche_5x4 = obtentionTouche();
+    //entreeValide = ((touche_4x4 == 'V') || (touche_4x4 == 'E'));
+    entreeValide = ((touche_5x4 == 'V') || (touche_5x4 == 'E'));
   } while (!entreeValide);
 }
 
@@ -528,17 +630,14 @@ void homing()
 
   if (digitalRead(capteurOrigineBroche) == HIGH /*LOW*/)      // Si la voie est detectée
   {
-    pontTournant.setCurrentPosition(0);             // Définir position voie entrée
+    pontTournant.setCurrentPosition(0);                       // Définir position voie entrée
     configPT.voieCourante = voieEntree;
-    // Sauvegarder la configuration en EEPROM
-    sauvegarderVoieCourante();
-    // Informer l'opérateur du succès
-    afficherMessage(F("Origine OK"), 3, false, TIMEOUT_MSG);
+    sauvegarderVoieCourante();                                // Sauvegarder la configuration en EEPROM
+    afficherMessage(F("Origine OK"), 3, false, TIMEOUT_MSG);  // Informer l'opérateur du succès
   }
   else
   {
-    // Informer opérateur de l'echec
-    afficherMessage(F("ECHEC: origine NOK  "), 3, true, TIMEOUT_ERREUR);
+    afficherMessage(F("ECHEC: origine NOK  "), 3, true, TIMEOUT_ERREUR);  // Informer opérateur de l'echec
   }
 
   // Restituer vitesse et accélération
@@ -556,13 +655,17 @@ void proposerHoming()
   afficherLigne(F("V: Oui E: Non"), 3);
 
   // Attendre la réponse de l'opérateur
-  char touche = '\0';
-  while (touche != 'V' && touche != 'E')
+  //char touche_4x4 = '\0';
+  char touche_5x4 = '\0';
+  //while (touche_4x4 != 'V' && touche_4x4 != 'E')
+  while (touche_5x4 != 'V' && touche_5x4 != 'E')
   {
-    touche = clavier4x4.getKey();
+    //touche_4x4 = clavier4x4.getKey();
+    touche_5x4 = obtentionTouche();
   }
 
-  if (touche == 'V')      // Lancer le homing
+  //if (touche_4x4 == 'V')      // Lancer le homing
+  if (touche_5x4 == 'V')      // Lancer le homing
   {
     homing();
   }
@@ -691,7 +794,8 @@ int saisirTypeManoeuvre()
     "Entree", "Sortie", "Transfert", "Maintenance", "Calibration", "Arret"
   };
 
-  char touche = '\0';
+  //char touche_4x4 = '\0';
+  char touche_5x4 = '\0';
   bool entreeValide = false;
 
   int startIndex = 0;             // Index du premier item affiché à l'écran
@@ -700,7 +804,7 @@ int saisirTypeManoeuvre()
   int selectionPrecedente = -1;   // Forcer le premier affichage
   int startIndexPrecedent = -1;
 
-  lcd.clear();
+  lcd1.clear();
 
   while (!JESUS_CHRIST)
   {
@@ -730,8 +834,8 @@ int saisirTypeManoeuvre()
           ligne[NB_CHAR] = '\0';
         }
         // Afficher la ligne sur l'écran LCD
-        lcd.setCursor(0, i);
-        lcd.print(ligne);
+        lcd1.setCursor(0, i);
+        lcd1.print(ligne);
       }
       // Etablir la "fenetre" du menu
       selectionPrecedente = selection;
@@ -740,51 +844,63 @@ int saisirTypeManoeuvre()
 
     // Attente d'une touche valide
     do {
-      touche = clavier4x4.getKey();
-      entreeValide = ((touche == 'U') ||
-                      (touche == 'D') ||
-                      (touche == 'V') ||
-                      (touche == 'E'));
+      //touche_4x4 = clavier4x4.getKey();
+      touche_5x4 = obtentionTouche();
+      /*
+        entreeValide = ((touche_4x4 == 'U') ||
+                      (touche_4x4 == 'D') ||
+                      (touche_4x4 == 'V') ||
+                      (touche_4x4 == 'E'));
+      */
+      entreeValide = ((touche_5x4 == 'H') ||
+                      (touche_5x4 == 'B') ||
+                      (touche_5x4 == 'V') ||
+                      (touche_5x4 == 'E'));
     } while (!entreeValide);
 
     // Gestion des touches
-    if (touche == 'U')
+    affichageToucheClavier();
+    //if (touche_4x4 == 'U')
+    if (touche_5x4 == 'H')
     {
       if (selection == 0)
       {
-        // Si on est en haut de la fenêtre et qu'on peut remonter dans la liste
-        if (startIndex > 0)
+        if (startIndex > 0)    // Si on est en haut de la fenêtre et qu'on peut remonter dans la liste
         {
           startIndex--;
         }
-      } else {
+      }
+      else
+      {
         selection--;
       }
     }
-    else if (touche == 'D')
+    //else if (touche_4x4 == 'D')
+    else if (touche_5x4 == 'B')
     {
       if (selection == 3)
       {
-        // Si on est en bas de la fenêtre et qu'on peut descendre dans la liste
-        if ((startIndex + 4) < nbManoeuvres) {
+        if ((startIndex + 4) < nbManoeuvres)     // Si on est en bas de la fenêtre et qu'on peut descendre dans la liste
+        {
           startIndex++;
         }
       }
       else
       {
-        // Vérifier qu'on ne dépasse pas le nombre total d'items
-        if ((startIndex + selection + 1) < nbManoeuvres) {
+        if ((startIndex + selection + 1) < nbManoeuvres)      // Vérifier qu'on ne dépasse pas le nombre total d'items
+        {
           selection++;
         }
       }
     }
-    else if (touche == 'V')
+    //else if (touche_4x4 == 'V')
+    else if (touche_5x4 == 'V')
     {
-      // Calcul de l'index global sélectionné
-      selectionGlobale = startIndex + selection;
+      selectionGlobale = startIndex + selection;    // Calcul de l'index global sélectionné
       return selectionGlobale;
     }
-    else if (touche == 'E')
+    //else if (touche_4x4 == 'E')
+    else if (touche_5x4 == 'E')
     {
       return ABANDON;
     }
@@ -797,38 +913,48 @@ int saisirTypeManoeuvre()
 // ------------------------------------------------------------------------------------
 int saisirNumeroVoie()
 {
-  char touche = '\0';
+  //char touche_4x4 = '\0';
+  char touche_5x4 = '\0';
   String saisie = "";
 
   // Afficher le message de saisie de la voie
   effacerLigne(2);
   effacerLigne(3);
   afficherLigne("Voie (1-" + String (NB_MAX_VOIE) + "):", 1);
-  lcd.setCursor(0, 2);
-  lcd.print(F("> "));
+  lcd1.setCursor(0, 2);
+  lcd1.print(F("> "));
 
   while (!JESUS_CHRIST)
   {
-    touche = clavier4x4.getKey();        // Attendre la saisie de l'opérateur
-    if (!touche) continue;
+    affichageToucheClavier();
+    Serial.print(saisie);
+    //touche_4x4 = clavier4x4.getKey();        // Attendre la saisie de l'opérateur
+    touche_5x4 = obtentionTouche();        // Attendre la saisie de l'opérateur
+    //if (!touche_4x4) continue;
+    if (!touche_5x4) continue;
 
-    if ((touche >= '0' && touche <= '9') && (saisie.length() < 2))    // Si chiffre de 0 à 9
+    //if ((touche_4x4 >= '0' && touche_4x4 <= '9') && (saisie.length() < 2))    // Si chiffre de 0 à 9
+    if ((touche_5x4 >= '0' && touche_5x4 <= '9') && (saisie.length() < 2))    // Si chiffre de 0 à 9
     {
-      saisie += touche;
-      lcd.setCursor(2, 2);
-      lcd.print("   ");
-      lcd.setCursor(2, 2);
-      lcd.print(saisie);
+      //saisie += touche_4x4;
+      saisie += touche_5x4;
+      lcd1.setCursor(2, 2);
+      lcd1.print("   ");
+      lcd1.setCursor(2, 2);
+      lcd1.print(saisie);
     }
-    else if (touche == 'L' && saisie.length() > 0)    // Sinon si c'est la touche backspace
+    //else if (touche_4x4 == 'L' && saisie.length() > 0)    // Sinon si c'est la touche backspace
+    else if (touche_5x4 == 'G' && saisie.length() > 0)    // Sinon si c'est la touche backspace
     {
       saisie.remove(saisie.length() - 1);
-      lcd.setCursor(2, 2);
-      lcd.print(F("   "));
-      lcd.setCursor(2, 2);
-      lcd.print(saisie);
+      lcd1.setCursor(2, 2);
+      lcd1.print(F("   "));
+      lcd1.setCursor(2, 2);
+      lcd1.print(saisie);
+      Serial.print(saisie);
     }
-    else if (touche == 'V')               // Sinon si c'est une validation
+    //else if (touche_4x4 == 'V')               // Sinon si c'est une validation
+    else if (touche_5x4 == 'V')               // Sinon si c'est une validation
     {
       if (saisie.length() == 0)           // Boucler si rien n'est saisie
       {
@@ -839,6 +965,8 @@ int saisirNumeroVoie()
       // Si le numéro de voie n'est pas conforme alors boucler
       // ===> TRAITER LA VOIE DE GARAGE = 0 avec if (voie < 0 ?????
       int voie = saisie.toInt();
+      Serial.println(touche_5x4);
+      Serial.println(voie);
       if (voie < 1 || voie > NB_MAX_VOIE)
       {
         String message = "Voie invalide (1-" + String(NB_MAX_VOIE) + ")";
@@ -847,14 +975,16 @@ int saisirNumeroVoie()
         effacerLigne(2);
         effacerLigne(3);
         saisie = "";
-        lcd.setCursor(0, 2);
-        lcd.print(F("> "));
+        lcd1.setCursor(0, 2);
+        lcd1.print(F("> "));
+
         continue;
       }
       // Sinon retourner la voie
       return voie;
     }
-    else if (touche == 'E') return ABANDON;         // Sinon abandonner
+    //else if (touche_4x4 == 'E') return ABANDON;         // Sinon abandonner
+    else if (touche_5x4 == 'E') return ABANDON;         // Sinon abandonner
   }
   //return ABANDON; // Robustesse
 }
@@ -866,7 +996,8 @@ int demanderRetournement()
 {
   const char* ouiNon[] = {"Non", "Oui"};
 
-  char touche = '\0';
+  //char touche_4x4 = '\0';
+  char touche_5x4 = '\0';
   bool entreeValide = false;
   int selection = 0;
 
@@ -879,23 +1010,34 @@ int demanderRetournement()
   {
     for (int i = 0; i < 2; i++)           // Afficher le choix Non ou Oui
     {
-      lcd.setCursor(0, i + 2);
-      lcd.print(i == selection ? "> " : "  ");
-      lcd.print(ouiNon[i]);
+      lcd1.setCursor(0, i + 2);
+      lcd1.print(i == selection ? "> " : "  ");
+      lcd1.print(ouiNon[i]);
     }
 
     // Attendre la réponse de l'opérateur
     do {
-      touche = clavier4x4.getKey();
-      entreeValide = ((touche == 'U') || (touche == 'D') ||
-                      (touche == 'V') || (touche == 'E'));
+      /*
+        touche_4x4 = clavier4x4.getKey();
+        entreeValide = ((touche_4x4 == 'U') || (touche_4x4 == 'D') ||
+                      (touche_4x4 == 'V') || (touche_4x4 == 'E'));
+      */
+
+      touche_5x4 = obtentionTouche();
+      entreeValide = ((touche_5x4 == 'H') || (touche_5x4 == 'B') ||
+                      (touche_5x4 == 'V') || (touche_5x4 == 'E'));
     } while (!entreeValide);
 
     // Traiter le choix de l'opérateur
-    if (touche == 'U' && selection > 0) selection--;
-    if (touche == 'D' && selection < 1) selection++;
-    if (touche == 'V') return selection;
-    if (touche == 'E') return ABANDON;
+    /*
+      if (touche_4x4 == 'U' && selection > 0) selection--;
+      if (touche_4x4 == 'D' && selection < 1) selection++;
+      if (touche_4x4 == 'V') return selection;
+    */
+    if (touche_5x4 == 'H' && selection > 0) selection--;
+    if (touche_5x4 == 'B' && selection < 1) selection++;
+    if (touche_5x4 == 'V') return selection;
+    if (touche_5x4 == 'E') return ABANDON;
   }
   //return ABANDON; // Robustesse
 }
@@ -905,7 +1047,8 @@ int demanderRetournement()
 // ------------------------------------------------------------------------------------
 void modeMaintenance()
 {
-  char touche = '\0';
+  //char touche_4x4 = '\0';
+  char touche_5x4 = '\0';
   bool entreeValide = false;
   String message = "";
 
@@ -920,20 +1063,37 @@ void modeMaintenance()
 
     // Attendre la réponse de l'opérateur
     do {
-      touche = clavier4x4.getKey();
-      entreeValide = ((touche == 'U') ||
-                      (touche == 'D') ||
-                      (touche == 'R') ||
-                      (touche == 'L') ||
-                      (touche == 'E'));
+      /*
+        touche_4x4 = clavier4x4.getKey();
+        entreeValide = ((touche_4x4 == 'U') ||
+                      (touche_4x4 == 'D') ||
+                      (touche_4x4 == 'R') ||
+                      (touche_4x4 == 'L') ||
+                      (touche_4x4 == 'E'));
+      */
+
+      touche_5x4 = obtentionTouche();
+      entreeValide = ((touche_5x4 == 'H') ||
+                      (touche_5x4 == 'B') ||
+                      (touche_5x4 == 'D') ||
+                      (touche_5x4 == 'G') ||
+                      (touche_5x4 == 'E'));
     } while (!entreeValide);
 
     // Traiter le choix de l'opérateur
-    if (touche == 'E') return;
-    if (touche == 'U') pontTournant.move(10);
-    if (touche == 'D') pontTournant.move(-10);
-    if (touche == 'R') pontTournant.move(1);
-    if (touche == 'L') pontTournant.move(-1);
+    /*
+      if (touche_4x4 == 'E') return;
+      if (touche_4x4 == 'U') pontTournant.move(10);
+      if (touche_4x4 == 'D') pontTournant.move(-10);
+      if (touche_4x4 == 'R') pontTournant.move(1);
+      if (touche_4x4 == 'L') pontTournant.move(-1);
+    */
+
+    if (touche_5x4 == 'E') return;
+    if (touche_5x4 == 'H') pontTournant.move(10);
+    if (touche_5x4 == 'B') pontTournant.move(-10);
+    if (touche_5x4 == 'D') pontTournant.move(1);
+    if (touche_5x4 == 'G') pontTournant.move(-1);
 
     // Déplacer le pont
     pontTournant.runToPosition();
@@ -945,7 +1105,8 @@ void modeMaintenance()
 // ------------------------------------------------------------------------------------
 void modeCalibration()
 {
-  char touche = '\0';
+  //char touche_4x4 = '\0';
+  char touche_5x4 = '\0';
   bool entreeValide = false;
   int voie = voieEntree;
   String message = "";
@@ -961,23 +1122,43 @@ void modeCalibration()
 
     // Attendre la réponse de l'opérateur
     do {
-      touche = clavier4x4.getKey();
-      entreeValide = ((touche == 'U') ||
-                      (touche == 'D') ||
-                      (touche == 'R') ||
-                      (touche == 'L') ||
-                      (touche == 'V') ||
-                      (touche == 'E'));
+      /*
+        touche_4x4 = clavier4x4.getKey();
+        entreeValide = ((touche_4x4 == 'U') ||
+                      (touche_4x4 == 'D') ||
+                      (touche_4x4 == 'R') ||
+                      (touche_4x4 == 'L') ||
+                      (touche_4x4 == 'V') ||
+                      (touche_4x4 == 'E'));
+      */
+      touche_5x4 = obtentionTouche();
+      entreeValide = ((touche_5x4 == 'H') ||
+                      (touche_5x4 == 'B') ||
+                      (touche_5x4 == 'D') ||
+                      (touche_5x4 == 'G') ||
+                      (touche_5x4 == 'V') ||
+                      (touche_5x4 == 'E'));
+
     } while (!entreeValide);
 
     // Traiter le choix de l'opérateur
-    if (touche == 'E') return;
-    if (touche == 'U') configPT.tabVoie[voie]++;
-    if (touche == 'D') configPT.tabVoie[voie]--;
-    if (touche == 'R' && voie < NB_MAX_VOIE) voie++;
-    if (touche == 'L' && voie > 0)           voie--;
+    /*
+        if (touche_4x4 == 'E') return;
+        if (touche_4x4 == 'U') configPT.tabVoie[voie]++;
+        if (touche_4x4 == 'D') configPT.tabVoie[voie]--;
+        if (touche_4x4 == 'R' && voie < NB_MAX_VOIE) voie++;
+        if (touche_4x4 == 'L' && voie > 0)           voie--;
+    */
+    Serial.println(touche_5x4);
+    if (touche_5x4 == 'E') return;
+    if (touche_5x4 == 'H') configPT.tabVoie[voie]++;
+    if (touche_5x4 == 'B') configPT.tabVoie[voie]--;
+    if (touche_5x4 == 'D' && voie < NB_MAX_VOIE) voie++;
+    if (touche_5x4 == 'G' && voie > 0)           voie--;
+
     // Procéder à la calibration
-    if (touche == 'V')
+    //if (touche_4x4 == 'V')
+    if (touche_5x4 == 'V')
     {
       sauverConfigurationPontTournant();
       afficherMessage(F("Sauvegarde OK"), 3, false, TIMEOUT_SAUVEGARDE);
@@ -992,13 +1173,38 @@ void modeCalibration()
 void setup()
 {
   Serial.begin(9600);
+  while (!Serial);
 
-#ifdef KEYPAD_I2C
-  jwire->begin( );               // Wire.begin( );
-  clavier4x4.begin( );           // clavier4x4.begin( makeKeymap(keys) );
-#else
-  delay(10);
-#endif
+  if (!mcp1.begin_I2C(I2CADDRmcp1))
+  {
+    Serial.println(F("Erreur : MCP23017 non trouvé."));
+    lcd1.init();
+    lcd1.backlight();
+    lcd1.setCursor(0, 0);
+    lcd1.print(F("MCP23017 non trouve."));
+    while (1);
+  }
+
+  for (int x = 0; x < ROWS_5x4; x++)          // Configuration des broches MCP23017
+  {
+    mcp1.pinMode(x, OUTPUT);                  // Lignes (GPA0-3) en SORTIE
+    mcp1.digitalWrite(x, HIGH);
+  }
+
+  for (int y = 0; y < COLS_5x4; y++)          // Les broches GPB commencent à index 8 dans bibliothèque Adafruit
+  {
+    mcp1.pinMode(y + 8, INPUT_PULLUP);        // Colonnes (GPB0-4) en ENTREE avec Pull-up activé
+  }
+  Serial.println(F("Clavier 20 touches prêt !"));
+
+  /*
+    #ifdef KEYPAD_I2C
+      jwire->begin( );               // Wire.begin( );
+      clavier4x4.begin( );           // clavier4x4.begin( makeKeymap(keys) );
+    #else
+      delay(10);
+    #endif
+  */
 
   pinMode(buzzerPin, OUTPUT);
   pinMode(capteurOrigineBroche, INPUT);
@@ -1009,8 +1215,8 @@ void setup()
   pinMode(stepStepperPin, OUTPUT);
   digitalWrite(enableStepperPin, LOW);
 
-  lcd.init();
-  lcd.backlight();
+  lcd1.init();
+  lcd1.backlight();
   afficherTitre(F("PONT TOURNANT"));
   afficherMessage("   Version: " + String(VERSION), 2, false, TIMEOUT_MSG);
 
@@ -1027,11 +1233,13 @@ void setup()
 // ------------------------------------------------------------------------------------
 void loop()
 {
+  affichageToucheClavier();
+
   int retournementChoisi;
   int voieSelectionnee;
-  int manoeuvre = saisirTypeManoeuvre();       // Interroger l'opéraeur
+  int manoeuvre = saisirTypeManoeuvre();             // Interroger l'opéraeur
 
-  switch (manoeuvre)                 // Traiter le choix de l'opérateur
+  switch (manoeuvre)                                 // Traiter le choix de l'opérateur
   {
     case ABANDON:
       return;
@@ -1111,10 +1319,10 @@ void loop()
     case ARRET:                                            // Arretter proporement le pont
       afficherTitre(F("== ARRET =="));
       sauverConfigurationPontTournant();
-      afficherMessage(F("Config. sauvegardée "), 3, false, TIMEOUT_MSG);
-      pontTournant.stop();                  // Arrêter et libérer le moteur à pas
+      afficherMessage(F("Config. sauvegardee "), 3, false, TIMEOUT_MSG);
+      pontTournant.stop();                                 // Arrêter et libérer le moteur à pas
 
-      while (true)                          // Boucler en attendant un redémarrage
+      while (true)                                         // Boucler en attendant un redémarrage
       {
         delay(1000);
       }
